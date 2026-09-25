@@ -9,7 +9,7 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "pnpm run generate && tsc -p tsconfig.json",
     "generate": "node ../../scripts/with-root-env.mjs exec prisma generate",
     "migrate": "node ../../scripts/with-root-env.mjs exec prisma migrate deploy",
     "migrate:dev": "node ../../scripts/with-root-env.mjs exec prisma migrate dev",
