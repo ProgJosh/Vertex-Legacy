@@ -1,0 +1,736 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserStatus {
+  PENDING_VERIFICATION
+  ACTIVE
+  SUSPENDED
+  CLOSED
+}
+
+enum KycStatus {
+  NOT_STARTED
+  PENDING
+  IN_REVIEW
+  VERIFIED
+  REJECTED
+  EXPIRED
+}
+
+enum LedgerAccountType {
+  PLATFORM_CASH
+  USER_DEPOSITED_CASH
+  USER_PROMOTIONAL_CREDIT
+  USER_INVESTED_FUNDS
+  USER_COMMISSION
+  USER_WITHDRAWAL_RESERVE
+  PLATFORM_FEE_REVENUE
+  PLATFORM_WITHDRAWAL_PAYABLE
+  PLATFORM_COMMISSION_EXPENSE
+  ADJUSTMENT_CLEARING
+}
+
+enum NormalBalance {
+  DEBIT
+  CREDIT
+}
+
+enum EntryDirection {
+  DEBIT
+  CREDIT
+}
+
+enum LedgerTransactionStatus {
+  PENDING
+  POSTED
+  REVERSED
+}
+
+enum MoneyRequestStatus {
+  PENDING
+  AWAITING_PROVIDER
+  AWAITING_REVIEW
+  SCHEDULED
+  PROCESSING
+  COMPLETED
+  REJECTED
+  FAILED
+  REVERSED
+  CANCELLED
+}
+
+enum PlanStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  CLOSED
+  ARCHIVED
+}
+
+enum InvestmentStatus {
+  PENDING
+  ACTIVE
+  MATURED
+  CANCELLED
+  REVERSED
+}
+
+enum CommissionStatus {
+  PENDING
+  APPROVED
+  PAID
+  REJECTED
+  REVERSED
+}
+
+enum ReferralStatus {
+  INVITED
+  VERIFIED
+  ELIGIBLE
+  INELIGIBLE
+  SUSPENDED
+}
+
+enum WebhookStatus {
+  RECEIVED
+  VERIFIED
+  PROCESSED
+  REJECTED
+  FAILED
+}
+
+enum ReconciliationStatus {
+  RUNNING
+  MATCHED
+  DISCREPANCIES
+  FAILED
+}
+
+enum SupportStatus {
+  OPEN
+  IN_PROGRESS
+  WAITING_ON_USER
+  RESOLVED
+  CLOSED
+}
+
+model User {
+  id                     String                    @id @default(uuid()) @db.Uuid
+  email                  String                    @unique
+  mobile                 String?                   @unique
+  status                 UserStatus                @default(PENDING_VERIFICATION)
+  emailVerifiedAt        DateTime?
+  mobileVerifiedAt       DateTime?
+  mfaEnabledAt           DateTime?
+  verifiedIndividualHash String?                   @unique
+  createdAt              DateTime                  @default(now())
+  updatedAt              DateTime                  @updatedAt
+  profile                Profile?
+  identities             IdentityProviderAccount[]
+  roles                  UserRole[]
+  kycCases               KycCase[]
+  wallet                 Wallet?
+  ledgerAccounts         LedgerAccount[]
+  deposits               Deposit[]
+  withdrawals            Withdrawal[]
+  payoutAccounts         PayoutAccount[]
+  orders                 InvestmentOrder[]
+  holdings               Holding[]
+  commissions            CommissionEvent[]
+  referralsMade          Referral[]                @relation("Referrer")
+  referralReceived       Referral?                 @relation("Referred")
+  notifications          Notification[]
+  auditActions           AuditLog[]                @relation("AuditActor")
+  supportCases           SupportCase[]
+  sessions               UserSession[]
+  securityEvents         SecurityEvent[]
+  notesAuthored          InternalNote[]
+  configsUpdated         PlatformConfiguration[]   @relation("ConfigUpdater")
+}
+
+model Profile {
+  userId          String    @id @db.Uuid
+  firstName       String
+  lastName        String
+  dateOfBirth     DateTime?
+  nationality     String?
+  addressLine1    String?
+  addressLine2    String?
+  city            String?
+  region          String?
+  postalCode      String?
+  countryCode     String    @default("PH")
+  preferredLocale String    @default("en-PH")
+  marketingOptIn  Boolean   @default(false)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  user            User      @relation(fields: [userId], references: [id], onDelete: Restrict)
+}
+
+model IdentityProviderAccount {
+  id              String    @id @default(uuid()) @db.Uuid
+  userId          String    @db.Uuid
+  provider        String
+  providerSubject String
+  createdAt       DateTime  @default(now())
+  lastLoginAt     DateTime?
+  user            User      @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@unique([provider, providerSubject])
+  @@index([userId])
+}
+
+model Role {
+  id          String           @id @default(uuid()) @db.Uuid
+  name        String           @unique
+  description String
+  users       UserRole[]
+  permissions RolePermission[]
+}
+
+model Permission {
+  id          String           @id @default(uuid()) @db.Uuid
+  key         String           @unique
+  description String
+  roles       RolePermission[]
+}
+
+model UserRole {
+  userId     String   @db.Uuid
+  roleId     String   @db.Uuid
+  assignedAt DateTime @default(now())
+  assignedBy String?  @db.Uuid
+  user       User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+  role       Role     @relation(fields: [roleId], references: [id], onDelete: Restrict)
+
+  @@id([userId, roleId])
+}
+
+model RolePermission {
+  roleId       String     @db.Uuid
+  permissionId String     @db.Uuid
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Restrict)
+
+  @@id([roleId, permissionId])
+}
+
+model KycCase {
+  id              String        @id @default(uuid()) @db.Uuid
+  userId          String        @db.Uuid
+  provider        String
+  providerCaseId  String?       @unique
+  status          KycStatus     @default(NOT_STARTED)
+  riskRating      String?
+  submittedAt     DateTime?
+  reviewedAt      DateTime?
+  reviewedBy      String?       @db.Uuid
+  rejectionReason String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  user            User          @relation(fields: [userId], references: [id], onDelete: Restrict)
+  documents       KycDocument[]
+
+  @@index([status, createdAt])
+  @@index([userId])
+}
+
+model KycDocument {
+  id           String   @id @default(uuid()) @db.Uuid
+  kycCaseId    String   @db.Uuid
+  storageKey   String
+  documentType String
+  encrypted    Boolean  @default(true)
+  checksum     String
+  originalName String
+  createdAt    DateTime @default(now())
+  kycCase      KycCase  @relation(fields: [kycCaseId], references: [id], onDelete: Restrict)
+
+  @@index([kycCaseId])
+}
+
+model Wallet {
+  id                           String   @id @default(uuid()) @db.Uuid
+  userId                       String   @unique @db.Uuid
+  currency                     String   @default("PHP")
+  depositedAvailableCentavos   BigInt   @default(0)
+  promotionalAvailableCentavos BigInt   @default(0)
+  commissionAvailableCentavos  BigInt   @default(0)
+  reservedCentavos             BigInt   @default(0)
+  projectionVersion            BigInt   @default(0)
+  updatedAt                    DateTime @updatedAt
+  user                         User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+}
+
+model LedgerAccount {
+  id            String            @id @default(uuid()) @db.Uuid
+  userId        String?           @db.Uuid
+  code          String            @unique
+  name          String
+  type          LedgerAccountType
+  normalBalance NormalBalance
+  currency      String            @default("PHP")
+  active        Boolean           @default(true)
+  createdAt     DateTime          @default(now())
+  user          User?             @relation(fields: [userId], references: [id], onDelete: Restrict)
+  entries       LedgerEntry[]
+
+  @@index([userId, type])
+}
+
+model LedgerTransaction {
+  id                String                  @id @default(uuid()) @db.Uuid
+  reference         String                  @unique
+  idempotencyKey    String                  @unique
+  kind              String
+  status            LedgerTransactionStatus @default(PENDING)
+  description       String
+  effectiveAt       DateTime                @default(now())
+  postedAt          DateTime?
+  reversalOfId      String?                 @unique @db.Uuid
+  metadata          Json?
+  createdAt         DateTime                @default(now())
+  reversalOf        LedgerTransaction?      @relation("LedgerReversal", fields: [reversalOfId], references: [id], onDelete: Restrict)
+  reversedBy        LedgerTransaction?      @relation("LedgerReversal")
+  entries           LedgerEntry[]
+  deposits          Deposit[]
+  withdrawalReserve Withdrawal[]            @relation("WithdrawalReserve")
+  withdrawalSettle  Withdrawal[]            @relation("WithdrawalSettlement")
+  withdrawalReverse Withdrawal[]            @relation("WithdrawalReversal")
+  investmentOrders  InvestmentOrder[]
+  commissionEvents  CommissionEvent[]
+
+  @@index([status, effectiveAt])
+}
+
+model LedgerEntry {
+  id             String            @id @default(uuid()) @db.Uuid
+  transactionId  String            @db.Uuid
+  accountId      String            @db.Uuid
+  direction      EntryDirection
+  amountCentavos BigInt
+  currency       String            @default("PHP")
+  createdAt      DateTime          @default(now())
+  transaction    LedgerTransaction @relation(fields: [transactionId], references: [id], onDelete: Restrict)
+  account        LedgerAccount     @relation(fields: [accountId], references: [id], onDelete: Restrict)
+
+  @@index([transactionId])
+  @@index([accountId, createdAt])
+}
+
+model Deposit {
+  id                  String             @id @default(uuid()) @db.Uuid
+  userId              String             @db.Uuid
+  amountCentavos      BigInt
+  currency            String             @default("PHP")
+  status              MoneyRequestStatus @default(PENDING)
+  idempotencyKey      String             @unique
+  provider            String
+  providerReference   String?            @unique
+  checkoutUrl         String?
+  ledgerTransactionId String?            @db.Uuid
+  completedAt         DateTime?
+  failureReason       String?
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+  user                User               @relation(fields: [userId], references: [id], onDelete: Restrict)
+  ledgerTransaction   LedgerTransaction? @relation(fields: [ledgerTransactionId], references: [id], onDelete: Restrict)
+
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+}
+
+model PayoutAccount {
+  id                  String       @id @default(uuid()) @db.Uuid
+  userId              String       @db.Uuid
+  type                String
+  institutionName     String
+  accountHolderName   String
+  encryptedIdentifier String
+  maskedIdentifier    String
+  providerToken       String?
+  verifiedAt          DateTime?
+  active              Boolean      @default(true)
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
+  user                User         @relation(fields: [userId], references: [id], onDelete: Restrict)
+  withdrawals         Withdrawal[]
+
+  @@index([userId, active])
+}
+
+model Withdrawal {
+  id                     String             @id @default(uuid()) @db.Uuid
+  userId                 String             @db.Uuid
+  payoutAccountId        String             @db.Uuid
+  requestedCentavos      BigInt
+  feeCentavos            BigInt
+  netCentavos            BigInt
+  currency               String             @default("PHP")
+  status                 MoneyRequestStatus @default(PENDING)
+  idempotencyKey         String             @unique
+  provider               String
+  providerReference      String?            @unique
+  scheduledFor           DateTime?
+  reservationTxnId       String?            @db.Uuid
+  settlementTxnId        String?            @db.Uuid
+  reversalTxnId          String?            @db.Uuid
+  reviewRequired         Boolean            @default(false)
+  reviewedBy             String?            @db.Uuid
+  reviewReason           String?
+  rejectionReason        String?
+  completedAt            DateTime?
+  createdAt              DateTime           @default(now())
+  updatedAt              DateTime           @updatedAt
+  user                   User               @relation(fields: [userId], references: [id], onDelete: Restrict)
+  payoutAccount          PayoutAccount      @relation(fields: [payoutAccountId], references: [id], onDelete: Restrict)
+  reservationTransaction LedgerTransaction? @relation("WithdrawalReserve", fields: [reservationTxnId], references: [id], onDelete: Restrict)
+  settlementTransaction  LedgerTransaction? @relation("WithdrawalSettlement", fields: [settlementTxnId], references: [id], onDelete: Restrict)
+  reversalTransaction    LedgerTransaction? @relation("WithdrawalReversal", fields: [reversalTxnId], references: [id], onDelete: Restrict)
+
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+}
+
+model Plan {
+  id                      String            @id @default(uuid()) @db.Uuid
+  slug                    String            @unique
+  name                    String
+  description             String
+  category                String
+  minimumCentavos         BigInt
+  maximumCentavos         BigInt?
+  durationDays            Int
+  riskClassification      String
+  managementFeeRate       Decimal           @db.Decimal(9, 6)
+  targetPerformanceLow    Decimal?          @db.Decimal(9, 6)
+  targetPerformanceHigh   Decimal?          @db.Decimal(9, 6)
+  performanceLabel        String            @default("Illustrative target")
+  eligibilityRequirements Json
+  terms                   String
+  availableFrom           DateTime?
+  availableUntil          DateTime?
+  capacityCentavos        BigInt?
+  subscribedCentavos      BigInt            @default(0)
+  status                  PlanStatus        @default(DRAFT)
+  promotionalBadge        String?
+  createdAt               DateTime          @default(now())
+  updatedAt               DateTime          @updatedAt
+  documents               PlanDocument[]
+  orders                  InvestmentOrder[]
+  holdings                Holding[]
+  valuations              Valuation[]
+
+  @@index([status, availableFrom])
+}
+
+model PlanDocument {
+  id          String    @id @default(uuid()) @db.Uuid
+  planId      String    @db.Uuid
+  title       String
+  storageKey  String
+  mimeType    String
+  checksum    String
+  publishedAt DateTime?
+  plan        Plan      @relation(fields: [planId], references: [id], onDelete: Restrict)
+
+  @@index([planId])
+}
+
+model InvestmentOrder {
+  id                  String             @id @default(uuid()) @db.Uuid
+  userId              String             @db.Uuid
+  planId              String             @db.Uuid
+  amountCentavos      BigInt
+  unitPrice           Decimal            @db.Decimal(24, 10)
+  units               Decimal            @db.Decimal(24, 10)
+  status              InvestmentStatus   @default(PENDING)
+  idempotencyKey      String             @unique
+  ledgerTransactionId String?            @db.Uuid
+  createdAt           DateTime           @default(now())
+  completedAt         DateTime?
+  user                User               @relation(fields: [userId], references: [id], onDelete: Restrict)
+  plan                Plan               @relation(fields: [planId], references: [id], onDelete: Restrict)
+  ledgerTransaction   LedgerTransaction? @relation(fields: [ledgerTransactionId], references: [id], onDelete: Restrict)
+  commissions         CommissionEvent[]
+
+  @@index([userId, createdAt])
+  @@index([planId, status])
+}
+
+model Holding {
+  id                String   @id @default(uuid()) @db.Uuid
+  userId            String   @db.Uuid
+  planId            String   @db.Uuid
+  units             Decimal  @db.Decimal(24, 10)
+  costBasisCentavos BigInt
+  openedAt          DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  user              User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+  plan              Plan     @relation(fields: [planId], references: [id], onDelete: Restrict)
+
+  @@unique([userId, planId])
+}
+
+model Valuation {
+  id           String   @id @default(uuid()) @db.Uuid
+  planId       String   @db.Uuid
+  nav          Decimal  @db.Decimal(24, 10)
+  unitPrice    Decimal  @db.Decimal(24, 10)
+  exchangeRate Decimal? @db.Decimal(24, 10)
+  asOf         DateTime
+  source       String
+  createdAt    DateTime @default(now())
+  plan         Plan     @relation(fields: [planId], references: [id], onDelete: Restrict)
+
+  @@unique([planId, asOf])
+  @@index([asOf])
+}
+
+model CommissionRule {
+  id                    String            @id @default(uuid()) @db.Uuid
+  name                  String
+  qualifyingEvent       String
+  rate                  Decimal           @db.Decimal(9, 6)
+  capCentavos           BigInt?
+  minimumSourceCentavos BigInt?
+  eligibility           Json
+  effectiveFrom         DateTime
+  effectiveUntil        DateTime?
+  active                Boolean           @default(true)
+  createdAt             DateTime          @default(now())
+  events                CommissionEvent[]
+
+  @@index([active, effectiveFrom])
+}
+
+model CommissionEvent {
+  id                  String             @id @default(uuid()) @db.Uuid
+  beneficiaryUserId   String             @db.Uuid
+  ruleId              String             @db.Uuid
+  sourceOrderId       String             @db.Uuid
+  sourceEventType     String
+  reason              String
+  amountCentavos      BigInt
+  status              CommissionStatus   @default(PENDING)
+  ledgerTransactionId String?            @db.Uuid
+  reversalOfId        String?            @unique @db.Uuid
+  createdAt           DateTime           @default(now())
+  approvedAt          DateTime?
+  paidAt              DateTime?
+  beneficiary         User               @relation(fields: [beneficiaryUserId], references: [id], onDelete: Restrict)
+  rule                CommissionRule     @relation(fields: [ruleId], references: [id], onDelete: Restrict)
+  sourceOrder         InvestmentOrder    @relation(fields: [sourceOrderId], references: [id], onDelete: Restrict)
+  ledgerTransaction   LedgerTransaction? @relation(fields: [ledgerTransactionId], references: [id], onDelete: Restrict)
+  reversalOf          CommissionEvent?   @relation("CommissionReversal", fields: [reversalOfId], references: [id], onDelete: Restrict)
+  reversedBy          CommissionEvent?   @relation("CommissionReversal")
+
+  @@unique([beneficiaryUserId, ruleId, sourceOrderId, sourceEventType])
+  @@index([status, createdAt])
+}
+
+model Referral {
+  id                String         @id @default(uuid()) @db.Uuid
+  referrerUserId    String         @db.Uuid
+  referredUserId    String         @unique @db.Uuid
+  referralCode      String
+  status            ReferralStatus @default(INVITED)
+  eligibilityReason String?
+  createdAt         DateTime       @default(now())
+  verifiedAt        DateTime?
+  referrer          User           @relation("Referrer", fields: [referrerUserId], references: [id], onDelete: Restrict)
+  referred          User           @relation("Referred", fields: [referredUserId], references: [id], onDelete: Restrict)
+
+  @@index([referrerUserId, status])
+}
+
+model Notification {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @db.Uuid
+  type      String
+  title     String
+  body      String
+  data      Json?
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([userId, readAt, createdAt])
+}
+
+model ProviderWebhook {
+  id               String        @id @default(uuid()) @db.Uuid
+  provider         String
+  externalEventId  String
+  eventType        String
+  signature        String
+  rawPayload       Json
+  status           WebhookStatus @default(RECEIVED)
+  processingResult Json?
+  receivedAt       DateTime      @default(now())
+  processedAt      DateTime?
+
+  @@unique([provider, externalEventId])
+  @@index([status, receivedAt])
+}
+
+model ReconciliationRun {
+  id               String                      @id @default(uuid()) @db.Uuid
+  provider         String
+  businessDate     DateTime                    @db.Date
+  status           ReconciliationStatus        @default(RUNNING)
+  internalTotal    BigInt                      @default(0)
+  providerTotal    BigInt                      @default(0)
+  discrepancyCount Int                         @default(0)
+  reportStorageKey String?
+  startedAt        DateTime                    @default(now())
+  completedAt      DateTime?
+  discrepancies    ReconciliationDiscrepancy[]
+
+  @@unique([provider, businessDate])
+}
+
+model ReconciliationDiscrepancy {
+  id                  String            @id @default(uuid()) @db.Uuid
+  reconciliationRunId String            @db.Uuid
+  providerReference   String?
+  internalReference   String?
+  internalCentavos    BigInt?
+  providerCentavos    BigInt?
+  resolution          String?
+  resolvedAt          DateTime?
+  run                 ReconciliationRun @relation(fields: [reconciliationRunId], references: [id], onDelete: Restrict)
+
+  @@index([reconciliationRunId])
+}
+
+model PlatformConfiguration {
+  id                             String   @id @default(uuid()) @db.Uuid
+  version                        Int      @unique
+  signupBonusCentavos            BigInt
+  minimumDepositCentavos         BigInt
+  minimumWithdrawalCentavos      BigInt
+  withdrawalFeeRate              Decimal  @db.Decimal(9, 6)
+  withdrawalOpensAt              String
+  withdrawalClosesAt             String
+  withdrawalTimezone             String
+  withdrawalOutsideWindowMode    String
+  defaultCurrency                String   @default("PHP")
+  promotionalCreditsWithdrawable Boolean  @default(false)
+  manualReviewThresholdCentavos  BigInt   @default(5000000)
+  active                         Boolean  @default(false)
+  effectiveAt                    DateTime
+  changeReason                   String
+  updatedById                    String?  @db.Uuid
+  createdAt                      DateTime @default(now())
+  updatedBy                      User?    @relation("ConfigUpdater", fields: [updatedById], references: [id], onDelete: Restrict)
+
+  @@index([active, effectiveAt])
+}
+
+model AuditLog {
+  id            String   @id @default(uuid()) @db.Uuid
+  actorUserId   String?  @db.Uuid
+  action        String
+  resourceType  String
+  resourceId    String?
+  reason        String?
+  outcome       String
+  ipAddressHash String?
+  userAgentHash String?
+  before        Json?
+  after         Json?
+  correlationId String
+  createdAt     DateTime @default(now())
+  actor         User?    @relation("AuditActor", fields: [actorUserId], references: [id], onDelete: Restrict)
+
+  @@index([resourceType, resourceId, createdAt])
+  @@index([actorUserId, createdAt])
+}
+
+model SupportCase {
+  id        String         @id @default(uuid()) @db.Uuid
+  userId    String         @db.Uuid
+  subject   String
+  category  String
+  status    SupportStatus  @default(OPEN)
+  priority  String         @default("NORMAL")
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+  user      User           @relation(fields: [userId], references: [id], onDelete: Restrict)
+  notes     InternalNote[]
+
+  @@index([status, createdAt])
+  @@index([userId, createdAt])
+}
+
+model InternalNote {
+  id            String       @id @default(uuid()) @db.Uuid
+  supportCaseId String?      @db.Uuid
+  withdrawalId  String?      @db.Uuid
+  kycCaseId     String?      @db.Uuid
+  authorUserId  String       @db.Uuid
+  body          String
+  createdAt     DateTime     @default(now())
+  supportCase   SupportCase? @relation(fields: [supportCaseId], references: [id], onDelete: Restrict)
+  author        User         @relation(fields: [authorUserId], references: [id], onDelete: Restrict)
+
+  @@index([supportCaseId, createdAt])
+}
+
+model Announcement {
+  id          String    @id @default(uuid()) @db.Uuid
+  title       String
+  body        String
+  audience    String
+  publishedAt DateTime?
+  expiresAt   DateTime?
+  createdAt   DateTime  @default(now())
+}
+
+model UserSession {
+  id                String    @id @default(uuid()) @db.Uuid
+  userId            String    @db.Uuid
+  providerSessionId String    @unique
+  deviceLabel       String?
+  ipAddressHash     String?
+  lastSeenAt        DateTime  @default(now())
+  revokedAt         DateTime?
+  createdAt         DateTime  @default(now())
+  user              User      @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([userId, revokedAt])
+}
+
+model SecurityEvent {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String?  @db.Uuid
+  eventType String
+  severity  String
+  metadata  Json?
+  createdAt DateTime @default(now())
+  user      User?    @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([userId, createdAt])
+}
+
+model IdempotencyRecord {
+  id             String    @id @default(uuid()) @db.Uuid
+  scope          String
+  key            String
+  requestHash    String
+  responseStatus Int?
+  responseBody   Json?
+  lockedAt       DateTime  @default(now())
+  completedAt    DateTime?
+  expiresAt      DateTime
+
+  @@unique([scope, key])
+  @@index([expiresAt])
+}

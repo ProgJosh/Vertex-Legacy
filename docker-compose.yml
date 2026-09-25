@@ -1,0 +1,33 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: vertex_legacy
+      POSTGRES_USER: vertex
+      POSTGRES_PASSWORD: vertex_local_only
+    ports:
+      - "${POSTGRES_PORT:-55432}:5432"
+    volumes:
+      - vertex-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vertex -d vertex_legacy"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:8-alpine
+    command: redis-server --appendonly yes
+    ports:
+      - "6379:6379"
+    volumes:
+      - vertex-redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  vertex-postgres:
+  vertex-redis:

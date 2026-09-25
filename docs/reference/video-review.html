@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Reference video contact sheet</title>
+    <style>
+      body { margin: 0; background: #111; color: #fff; font: 16px system-ui; }
+      main { display: grid; gap: 20px; padding: 20px; }
+      figure { margin: 0; }
+      canvas { width: min(100%, 900px); background: #000; display: block; }
+      figcaption { margin-top: 6px; color: #ccc; }
+      video { display: none; }
+    </style>
+  </head>
+  <body>
+    <main id="frames"></main>
+    <script>
+      const source = "sample guide.mp4";
+      const points = [0.1, 0.5, 0.9];
+      const root = document.getElementById("frames");
+      for (const point of points) {
+        const figure = document.createElement("figure");
+        const canvas = document.createElement("canvas");
+        const caption = document.createElement("figcaption");
+        const video = document.createElement("video");
+        video.muted = true;
+        video.preload = "auto";
+        video.src = source;
+        figure.append(canvas, caption, video);
+        root.append(figure);
+        video.addEventListener("loadedmetadata", () => {
+          video.currentTime = Math.max(0, video.duration * point);
+        });
+        video.addEventListener("seeked", () => {
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
+          canvas.getContext("2d").drawImage(video, 0, 0);
+          caption.textContent = `${Math.round(point * 100)}% — ${video.currentTime.toFixed(1)}s of ${video.duration.toFixed(1)}s`;
+        });
+      }
+    </script>
+  </body>
+</html>

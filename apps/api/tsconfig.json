@@ -1,0 +1,13 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "allowSyntheticDefaultImports": true,
+    "baseUrl": ".",
+    "types": ["node"]
+  },
+  "include": ["src/**/*.ts", "test/**/*.ts", "*.ts"]
+}

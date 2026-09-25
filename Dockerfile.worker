@@ -1,0 +1,18 @@
+FROM node:24-alpine AS build
+WORKDIR /app
+RUN corepack enable
+COPY . .
+RUN pnpm install --frozen-lockfile
+RUN pnpm --filter @vertex/database generate
+RUN pnpm --filter @vertex/worker build
+
+FROM node:24-alpine AS runtime
+ENV NODE_ENV=production
+WORKDIR /app
+RUN addgroup --system vertex && adduser --system --ingroup vertex vertex
+COPY --from=build --chown=vertex:vertex /app/node_modules ./node_modules
+COPY --from=build --chown=vertex:vertex /app/apps/worker/dist ./apps/worker/dist
+COPY --from=build --chown=vertex:vertex /app/packages ./packages
+COPY --from=build --chown=vertex:vertex /app/package.json ./
+USER vertex
+CMD ["node", "apps/worker/dist/main.js"]
