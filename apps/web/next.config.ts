@@ -6,6 +6,9 @@ const nextConfig: NextConfig = {
   reactStrictMode: true,
   typedRoutes: false,
   transpilePackages: ["@vertex/api-client", "@vertex/types", "@vertex/ui"],
+  images: {
+    unoptimized: true,
+  },
   async headers() {
     return [
       {

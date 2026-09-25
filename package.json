@@ -28,5 +28,10 @@
   },
   "dependencies": {
     "pg": "^8.23.0"
+  },
+  "pnpm": {
+    "overrides": {
+      "sharp": "0.34.5"
+    }
   }
 }
