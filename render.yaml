@@ -1,6 +1,5 @@
 # Render deployment configuration for Vertex Legacy
-# Deploy with: render deploy --config render.yaml
-# Or connect GitHub repo at render.com and it will auto-detect
+# Deploy: Push to GitHub → New → Blueprint at dashboard.render.com
 
 services:
   # API Service (NestJS)
@@ -42,19 +41,18 @@ services:
         sync: false
     healthCheckPath: /v1/health
 
-  # PostgreSQL Database
-  - type: pserv
-    name: vertex-legacy-db
-    runtime: postgresql
-    plan: free
+databases:
+  - name: vertex-legacy-db
+    databaseName: vertex_legacy
+    user: vertex
     region: singapore
-    ipAllowList: []  # Allow all for now, restrict in production
+    plan: free
+    postgresMajorVersion: "17"
 
-  # Redis
-  - type: redis
-    name: vertex-legacy-redis
+redis:
+  - name: vertex-legacy-redis
     plan: free
     region: singapore
+    maxmemoryPolicy: allkeys-lru
 
 # Web Service (Next.js) - Deploy separately on Cloudflare Workers
-# See render-web.yaml for Cloudflare Pages alternative
