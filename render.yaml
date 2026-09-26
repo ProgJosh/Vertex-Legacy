@@ -34,9 +34,6 @@ databases:
     user: vertex
     region: oregon
     plan: free
-    postgresMajorVersion: "17"
 
-redis:
-  - name: vertex-legacy-redis
-    plan: free
-    region: oregon
+# Redis: Create manually in Render Dashboard (New → Redis) - free tier available
+# Name: vertex-legacy-redis, region: oregon, plan: free
