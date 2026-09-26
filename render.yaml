@@ -6,14 +6,13 @@ services:
     name: vertex-legacy-api
     runtime: node
     buildCommand: |
-      corepack enable
-      corepack pnpm install --frozen-lockfile
-      corepack pnpm --filter @vertex/database generate
-      corepack pnpm --filter @vertex/api build
+      pnpm install --frozen-lockfile
+      pnpm --filter @vertex/database generate
+      pnpm --filter @vertex/api build
     startCommand: |
-      corepack pnpm --filter @vertex/database migrate:deploy
-      corepack pnpm --filter @vertex/database seed
-      corepack pnpm --filter @vertex/api start
+      pnpm --filter @vertex/database migrate:deploy
+      pnpm --filter @vertex/database seed
+      pnpm --filter @vertex/api start
     region: oregon
     plan: free
     autoDeploy: true
