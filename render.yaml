@@ -2,12 +2,11 @@
 # Deploy: Push to GitHub → New → Blueprint at dashboard.render.com
 
 services:
-  # API Service (NestJS)
   - type: web
     name: vertex-legacy-api
     runtime: docker
     dockerfilePath: ./Dockerfile.api
-    region: singapore
+    region: oregon
     plan: free
     autoDeploy: true
     envVars:
@@ -27,32 +26,17 @@ services:
         value: https://vertex-legacy-staging.onrender.com
       - key: AUTH0_AUDIENCE
         value: https://api.vertex-legacy.com
-      - key: PAYMONGO_SECRET_KEY
-        sync: false
-      - key: PAYMONGO_WEBHOOK_SECRET
-        sync: false
-      - key: XENDIT_SECRET_KEY
-        sync: false
-      - key: XENDIT_WEBHOOK_TOKEN
-        sync: false
-      - key: MOCK_PROVIDER_WEBHOOK_SECRET
-        sync: false
-      - key: MOCK_SESSION_SECRET
-        sync: false
     healthCheckPath: /v1/health
 
 databases:
   - name: vertex-legacy-db
     databaseName: vertex_legacy
     user: vertex
-    region: singapore
+    region: oregon
     plan: free
     postgresMajorVersion: "17"
 
 redis:
   - name: vertex-legacy-redis
     plan: free
-    region: singapore
-    maxmemoryPolicy: allkeys-lru
-
-# Web Service (Next.js) - Deploy separately on Cloudflare Workers
+    region: oregon
