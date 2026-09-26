@@ -19,7 +19,7 @@ services:
     autoDeploy: true
     envVars:
       - key: NODE_ENV
-        value: production
+        value: development
       - key: AUTH_PROVIDER
         value: mock
       - key: PAYMENT_PROVIDER
