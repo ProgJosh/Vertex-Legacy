@@ -39,11 +39,6 @@ services:
         fromDatabase:
           name: vertex-legacy-db
           property: connectionString
-      # REDIS_URL auto-injected from redis (create Redis manually in dashboard)
-      - key: REDIS_URL
-        fromRedis:
-          name: vertex-legacy-redis
-          property: connectionString
     healthCheckPath: /v1/health
 
 databases:
@@ -55,3 +50,4 @@ databases:
 
 # Redis: Create manually in Render Dashboard → New → Redis
 # Name: vertex-legacy-redis, Region: oregon, Plan: free
+# Then add REDIS_URL as secret in API service Environment tab
