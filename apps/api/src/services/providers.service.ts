@@ -17,6 +17,19 @@ export class ProvidersService {
     }
   }
 
+  /**
+   * Guards reservation of withdrawal funds. A licensed deployment has no
+   * settlement path wired up yet, so accepting a request would move customer
+   * money into the reserve account with no way to pay it out or release it.
+   */
+  assertPayoutAvailable() {
+    if (process.env.PAYOUT_PROVIDER !== "mock") {
+      throw new ServiceUnavailableException(
+        "Payouts are not enabled. A licensed payout adapter must be configured before withdrawals can be requested.",
+      );
+    }
+  }
+
   createDepositCheckout(depositId: string): Checkout {
     this.assertSandbox("payment");
     return {

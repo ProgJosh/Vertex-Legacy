@@ -1,15 +1,15 @@
 import { cookies } from "next/headers";
 import { NextRequest, NextResponse } from "next/server";
 import { auth0 } from "@/lib/auth0";
+import { isAllowedOrigin } from "@/lib/origins";
 
 const baseUrl = process.env.INTERNAL_API_URL ?? "http://localhost:4000/v1";
 
 async function forward(request: NextRequest, context: { params: Promise<{ path: string[] }> }) {
-  const origin = request.headers.get("origin");
-  const allowedOrigin = process.env.WEB_ORIGIN ?? process.env.APP_BASE_URL ?? "http://localhost:3000";
-  if (request.method !== "GET" && origin && origin !== allowedOrigin) {
+  if (request.method !== "GET" && !isAllowedOrigin(request.headers.get("origin"))) {
     return NextResponse.json({ message: "Origin rejected." }, { status: 403 });
   }
+
   const { path } = await context.params;
   const headers = new Headers();
   headers.set("content-type", request.headers.get("content-type") ?? "application/json");

@@ -15,6 +15,8 @@ type Plan = {
   performanceLabel: string;
   targetPerformanceLow: string | null;
   targetPerformanceHigh: string | null;
+  dailyPayoutCentavos: string;
+  totalReturnCentavos: string;
   terms: string;
 };
 
@@ -46,9 +48,11 @@ export default async function PlanPage({ params }: { params: Promise<{ slug: str
         <section className="content-block">
           <h2>Plan parameters</h2>
           <dl className="detail-list">
-            <div><dt>Minimum</dt><dd>{formatPhp(plan.minimumCentavos)}</dd></div>
+            <div><dt>Price</dt><dd>{formatPhp(plan.minimumCentavos)}</dd></div>
+            <div><dt>Daily payout</dt><dd>{BigInt(plan.dailyPayoutCentavos) > 0n ? formatPhp(plan.dailyPayoutCentavos) : "Not scheduled"}</dd></div>
+            <div><dt>Cycle</dt><dd>{plan.durationDays} days</dd></div>
+            <div><dt>Stated total return</dt><dd>{BigInt(plan.totalReturnCentavos) > 0n ? formatPhp(plan.totalReturnCentavos) : "Not scheduled"}</dd></div>
             <div><dt>Maximum</dt><dd>{plan.maximumCentavos ? formatPhp(plan.maximumCentavos) : "No published maximum"}</dd></div>
-            <div><dt>Duration</dt><dd>{plan.durationDays} days</dd></div>
             <div><dt>Risk classification</dt><dd>{plan.riskClassification}</dd></div>
           </dl>
         </section>

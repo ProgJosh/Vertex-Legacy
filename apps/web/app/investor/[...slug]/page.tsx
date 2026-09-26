@@ -16,6 +16,11 @@ import {
   SupportCaseForm,
 } from "@/components/account-forms";
 import { PortfolioChart } from "@/components/portfolio-chart";
+import {
+  CompanyPlans,
+  type CommissionLevel,
+  type CompanyPlan,
+} from "@/components/company-plans";
 
 type Wallet = {
   depositedAvailableCentavos: string;
@@ -76,6 +81,8 @@ type Plan = {
   performanceLabel: string;
   targetPerformanceLow: string | null;
   targetPerformanceHigh: string | null;
+  dailyPayoutCentavos: string;
+  totalReturnCentavos: string;
   terms: string;
   promotionalBadge: string | null;
 };
@@ -264,9 +271,11 @@ export default async function InvestorSection({
             <h2 style={{ fontSize: "1.5rem" }}>Mandate and terms</h2>
             <p>{plan.terms}</p>
             <dl className="detail-list">
-              <div><dt>Minimum</dt><dd>{formatPhp(plan.minimumCentavos)}</dd></div>
-              <div><dt>Maximum</dt><dd>{plan.maximumCentavos ? formatPhp(plan.maximumCentavos) : "Not published"}</dd></div>
-              <div><dt>Duration</dt><dd>{plan.durationDays} days</dd></div>
+              <div><dt>Price</dt><dd>{formatPhp(plan.minimumCentavos)}</dd></div>
+              <div><dt>Daily payout</dt><dd>{BigInt(plan.dailyPayoutCentavos) > 0n ? formatPhp(plan.dailyPayoutCentavos) : "Not scheduled"}</dd></div>
+              <div><dt>Cycle</dt><dd>{plan.durationDays} days</dd></div>
+              <div><dt>Stated total return</dt><dd>{BigInt(plan.totalReturnCentavos) > 0n ? formatPhp(plan.totalReturnCentavos) : "Not scheduled"}</dd></div>
+              <div><dt>Maximum</dt><dd>{plan.maximumCentavos ? formatPhp(plan.maximumCentavos) : "No published maximum"}</dd></div>
               <div><dt>Risk</dt><dd>{plan.riskClassification}</dd></div>
               <div><dt>Performance wording</dt><dd>{plan.performanceLabel}</dd></div>
             </dl>
@@ -282,11 +291,15 @@ export default async function InvestorSection({
   }
 
   if (section === "plans") {
-    const plans = await optionalApiGet<Plan[]>("/public/plans", []);
+    const [plans, levels] = await Promise.all([
+      optionalApiGet<Plan[]>("/public/plans", []),
+      optionalApiGet<CommissionLevel[]>("/public/commission-levels", []),
+    ]);
     return (
       <>
-        <Heading eyebrow="Company plans" title="Assess before you subscribe." description="Compare risk, duration, limits, fee structure, eligibility, capacity, and approved supporting documents." />
-        {plans.length ? <div className="plan-grid">{plans.map((plan) => <article className="plan-card" key={plan.id}><p className="eyebrow">{plan.category}</p><h3>{plan.name}</h3><p className="muted">{plan.description}</p><div className="plan-meta"><span><small>Minimum</small>{formatPhp(plan.minimumCentavos)}</span><span><small>Risk</small>{plan.riskClassification}</span></div><Button asChild variant="secondary"><Link href={"/investor/plans/" + plan.slug}>Review and subscribe</Link></Button></article>)}</div> : <div className="empty-state">No plans are open.</div>}
+        <Heading eyebrow="Company plans" title="Assess before you subscribe." description="Compare price, daily payout, cycle, stated total return, risk, limits, eligibility, and approved supporting documents." />
+        {plans.length ? <div className="plan-grid">{plans.map((plan) => <article className="plan-card" key={plan.id}><p className="eyebrow">{plan.category}</p><h3>{plan.name}</h3><p className="muted">{plan.description}</p><div className="plan-meta"><span><small>Price</small>{formatPhp(plan.minimumCentavos)}</span><span><small>Daily payout</small>{BigInt(plan.dailyPayoutCentavos) > 0n ? formatPhp(plan.dailyPayoutCentavos) : "Not scheduled"}</span><span><small>Cycle</small>{plan.durationDays} days</span><span><small>Stated total return</small>{BigInt(plan.totalReturnCentavos) > 0n ? formatPhp(plan.totalReturnCentavos) : "Not scheduled"}</span><span><small>Risk</small>{plan.riskClassification}</span></div><Button asChild variant="secondary"><Link href={"/investor/plans/" + plan.slug}>Review and subscribe</Link></Button></article>)}</div> : <div className="empty-state">No plans are open.</div>}
+        <CompanyPlans plans={plans} levels={levels} />
       </>
     );
   }
@@ -328,11 +341,28 @@ export default async function InvestorSection({
   }
 
   if (section === "team") {
-    const data = await apiGet<{ referralCode: string; programStatement: string; referrals: Array<{ id: string; status: string; createdAt: string; referred: { email: string; profile: { firstName: string; lastName: string } | null } }> }>("/me/referrals");
+    const [data, levels] = await Promise.all([
+      apiGet<{ referralCode: string; programStatement: string; referrals: Array<{ id: string; status: string; createdAt: string; referred: { email: string; profile: { firstName: string; lastName: string } | null } }> }>("/me/referrals"),
+      optionalApiGet<CommissionLevel[]>("/public/commission-levels", []),
+    ]);
     return (
       <>
         <Heading eyebrow="Team and referrals" title="Transparent network activity." description={data.programStatement} />
         <section className="callout"><p className="eyebrow">Your referral code</p><h2 style={{ fontSize: "1.8rem" }}>{data.referralCode}</h2><p className="muted">Self-referrals and duplicate-account abuse are ineligible.</p></section>
+        {levels.length > 0 && (
+          <section className="panel" style={{ marginTop: 18 }}>
+            <h2 style={{ fontSize: "1.5rem" }}>Commission levels</h2>
+            <dl className="company-plans-level-grid" style={{ marginTop: 14 }}>
+              {levels.map((item) => (
+                <div key={item.id}>
+                  <dt>Level {item.level ?? "–"}{!item.active && <span className="muted"> · not credited</span>}</dt>
+                  <dd>{(Number(item.rate) * 100).toFixed(0)}%</dd>
+                </div>
+              ))}
+            </dl>
+            <p className="muted" style={{ marginTop: 14 }}>A commission is credited only from a confirmed plan service fee. A deposit never qualifies.</p>
+          </section>
+        )}
         <section className="panel" style={{ marginTop: 18 }}>{data.referrals.length ? <div className="table-scroll"><table className="data-table"><thead><tr><th>Member</th><th>Joined</th><th>Status</th></tr></thead><tbody>{data.referrals.map((item) => <tr key={item.id}><td>{item.referred.profile ? item.referred.profile.firstName + " " + item.referred.profile.lastName : item.referred.email}</td><td>{new Date(item.createdAt).toLocaleDateString("en-PH")}</td><td><Status value={item.status} /></td></tr>)}</tbody></table></div> : <div className="empty-state">No referred accounts are linked to your profile.</div>}</section>
       </>
     );

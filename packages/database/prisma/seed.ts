@@ -10,9 +10,13 @@ import {
   UserStatus,
 } from "@prisma/client";
 import { Permissions, Roles } from "@vertex/types";
-import { platformSeed } from "@vertex/config";
+import { companyCommissionLevels, companyVipPlans, platformSeed } from "@vertex/config";
 
 const db = new PrismaClient();
+
+/** Stable UUIDs keep the level rules idempotent across re-seeds. */
+const levelRuleId = (level: number) =>
+  "00000000-0000-4000-8000-0000000003" + String(level).padStart(2, "0");
 
 const permissionsByRole: Record<string, string[]> = {
   [Roles.INVESTOR]: [
@@ -79,6 +83,7 @@ async function createAccounts(userId: string, prefix: string) {
 }
 
 async function main() {
+  const production = process.env.NODE_ENV === "production";
   const investorRole = await seedRole(Roles.INVESTOR, "Verified customer with self-service investing permissions.");
   const financeRole = await seedRole(
     Roles.FINANCE_COMPLIANCE,
@@ -86,6 +91,9 @@ async function main() {
   );
   const adminRole = await seedRole(Roles.ADMIN, "Platform administration with audited sensitive actions.");
 
+  let demoInvestorId: string | null = null;
+  let demoAdminId: string | null = null;
+  if (!production) {
   const investor = await db.user.upsert({
     where: { email: "investor.demo@vertex.local" },
     update: {},
@@ -163,6 +171,8 @@ async function main() {
       identities: { create: { provider: "mock", providerSubject: "demo-admin" } },
     },
   });
+  demoInvestorId = investor.id;
+  demoAdminId = admin.id;
 
   for (const [userId, roleId] of [
     [investor.id, investorRole.id],
@@ -175,10 +185,13 @@ async function main() {
       create: { userId, roleId },
     });
   }
+  }
 
   await db.platformConfiguration.upsert({
     where: { version: 1 },
-    update: { active: true },
+    // A deployment restart must not overwrite a later configuration version or
+    // reactivate version 1 after an administrator has superseded it.
+    update: {},
     create: {
       version: 1,
       signupBonusCentavos: platformSeed.signupBonusCentavos,
@@ -194,8 +207,10 @@ async function main() {
       manualReviewThresholdCentavos: 5_000_000n,
       active: true,
       effectiveAt: new Date("2026-01-01T00:00:00Z"),
-      changeReason: "Initial demonstration configuration",
-      updatedById: admin.id,
+      changeReason: production
+        ? "Initial platform configuration"
+        : "Initial demonstration configuration",
+      updatedById: demoAdminId,
     },
   });
 
@@ -214,12 +229,13 @@ async function main() {
     update: {},
     create: {
       code: "PLATFORM:ADJUSTMENT",
-      name: "Demonstration opening balance clearing",
+      name: "Opening balance and promotion clearing",
       type: LedgerAccountType.ADJUSTMENT_CLEARING,
       normalBalance: NormalBalance.DEBIT,
     },
   });
-  const accounts = await createAccounts(investor.id, "USER:" + investor.id);
+  if (demoInvestorId) {
+  const accounts = await createAccounts(demoInvestorId, "USER:" + demoInvestorId);
 
   if (!(await db.ledgerTransaction.findUnique({ where: { idempotencyKey: "seed:opening-cash" } }))) {
     await db.ledgerTransaction.create({
@@ -266,69 +282,100 @@ async function main() {
       },
     });
   }
+  }
 
-  const plans = [
-    {
-      slug: "vertex-core-income",
-      name: "Vertex Core Income",
-      description: "A measured income-oriented mandate using eligible fixed-income and cash instruments.",
-      category: "Income",
-      minimumCentavos: 250_000n,
-      maximumCentavos: 5_000_000n,
-      durationDays: 180,
-      riskClassification: "Moderate",
-      managementFeeRate: new Prisma.Decimal("0.012500"),
-      targetPerformanceLow: new Prisma.Decimal("0.040000"),
-      targetPerformanceHigh: new Prisma.Decimal("0.065000"),
-      promotionalBadge: "Income focus",
-    },
-    {
-      slug: "vertex-balanced-opportunities",
-      name: "Vertex Balanced Opportunities",
-      description: "A diversified mandate designed for investors seeking measured long-term capital growth.",
-      category: "Balanced",
-      minimumCentavos: 500_000n,
-      maximumCentavos: 10_000_000n,
-      durationDays: 365,
-      riskClassification: "Moderate–high",
-      managementFeeRate: new Prisma.Decimal("0.015000"),
-      targetPerformanceLow: new Prisma.Decimal("0.060000"),
-      targetPerformanceHigh: new Prisma.Decimal("0.100000"),
-      promotionalBadge: "Diversified",
-    },
-    {
-      slug: "vertex-capital-preservation",
-      name: "Vertex Capital Preservation",
-      description: "A lower-volatility mandate prioritizing liquidity discipline and capital preservation.",
-      category: "Conservative",
-      minimumCentavos: 100_000n,
-      maximumCentavos: 3_000_000n,
-      durationDays: 90,
-      riskClassification: "Low",
-      managementFeeRate: new Prisma.Decimal("0.007500"),
-      targetPerformanceLow: new Prisma.Decimal("0.025000"),
-      targetPerformanceHigh: new Prisma.Decimal("0.040000"),
+  // The company VIP schedule replaces the earlier generic mandates. Retiring them
+  // rather than deleting them keeps existing orders, holdings and statements
+  // referentially intact while /public/plans returns only the current schedule.
+  await db.plan.updateMany({
+    where: { slug: { in: ["vertex-core-income", "vertex-balanced-opportunities", "vertex-capital-preservation"] } },
+    data: { status: PlanStatus.ARCHIVED },
+  });
+
+  for (const [index, plan] of companyVipPlans.entries()) {
+    const slug = "vip-" + String(index + 1);
+    const totalReturnRate =
+      Number(plan.totalReturnCentavos) / Number(plan.priceCentavos);
+    const values = {
+      name: plan.name,
+      description:
+        plan.name +
+        " is a fixed " +
+        plan.cycleDays +
+        "-day company plan at a " +
+        "₱" +
+        (Number(plan.priceCentavos) / 100).toLocaleString("en-PH") +
+        " subscription price, with a stated daily payout of ₱" +
+        (Number(plan.dailyPayoutCentavos) / 100).toLocaleString("en-PH") +
+        " and a stated total return of ₱" +
+        (Number(plan.totalReturnCentavos) / 100).toLocaleString("en-PH") +
+        " across the cycle.",
+      category: "Company VIP",
+      minimumCentavos: plan.priceCentavos,
+      maximumCentavos: plan.priceCentavos,
+      durationDays: plan.cycleDays,
+      riskClassification: "High",
+      managementFeeRate: new Prisma.Decimal("0.000000"),
+      targetPerformanceLow: new Prisma.Decimal(totalReturnRate.toFixed(6)),
+      targetPerformanceHigh: new Prisma.Decimal(totalReturnRate.toFixed(6)),
+      performanceLabel: "Company schedule · return not guaranteed",
+      dailyPayoutCentavos: plan.dailyPayoutCentavos,
+      totalReturnCentavos: plan.totalReturnCentavos,
+      eligibilityRequirements: { kyc: "VERIFIED", minimumAge: 18 },
+      terms:
+        "Fixed-price, fixed-duration company plan. The daily payout and total return shown are the figures published in the company plan schedule; they are a stated schedule, not a guaranteed or assured return, and the platform does not underwrite them. Returns are not guaranteed and capital is at risk. Availability is subject to capacity, suitability and provider approval. Confirm the current schedule with Vertex Legacy before subscribing.",
+      availableFrom: new Date("2026-01-01T00:00:00Z"),
+      capacityCentavos: null,
+      status: PlanStatus.ACTIVE,
       promotionalBadge: null,
-    },
-  ];
-
-  for (const plan of plans) {
+    };
+    const { status, ...scheduleValues } = values;
     await db.plan.upsert({
-      where: { slug: plan.slug },
-      update: {},
+      where: { slug },
+      // The published schedule is the source of truth, so a re-seed reconciles
+      // numeric drift. Production preserves an administrator's pause/close
+      // decision instead of silently reactivating a plan during deployment.
+      update: production ? scheduleValues : values,
+      create: { slug, ...scheduleValues, status },
+    });
+  }
+
+  for (const level of companyCommissionLevels) {
+    await db.commissionRule.upsert({
+      where: { id: levelRuleId(level.level) },
+      update: {
+        name: level.name,
+        rate: new Prisma.Decimal(
+          (level.rateBasisPoints / 10_000).toFixed(6),
+        ),
+        ...(!production ? { active: true } : {}),
+        eligibility: {
+          kyc: "VERIFIED",
+          selfReferral: false,
+          depositAloneQualifies: false,
+          level: level.level,
+        },
+      },
       create: {
-        ...plan,
-        eligibilityRequirements: { kyc: "VERIFIED", minimumAge: 18 },
-        terms:
-          "Targets are illustrative, not guaranteed. Capital is at risk. Availability is subject to suitability and provider approval.",
-        availableFrom: new Date("2026-01-01T00:00:00Z"),
-        capacityCentavos: 100_000_000n,
-        status: PlanStatus.ACTIVE,
+        id: levelRuleId(level.level),
+        name: level.name,
+        qualifyingEvent: "PLAN_SERVICE_FEE_CONFIRMED",
+        rate: new Prisma.Decimal((level.rateBasisPoints / 10_000).toFixed(6)),
+        capCentavos: null,
+        minimumSourceCentavos: null,
+        eligibility: {
+          kyc: "VERIFIED",
+          selfReferral: false,
+          depositAloneQualifies: false,
+          level: level.level,
+        },
+        effectiveFrom: new Date("2026-01-01T00:00:00Z"),
+        active: true,
       },
     });
   }
 
-  await db.announcement.upsert({
+  if (!production) await db.announcement.upsert({
     where: { id: "00000000-0000-0000-0000-000000000101" },
     update: {},
     create: {
@@ -342,5 +389,11 @@ async function main() {
 }
 
 main()
-  .then(() => console.log("Vertex Legacy demonstration data seeded."))
+  .then(() =>
+    console.log(
+      process.env.NODE_ENV === "production"
+        ? "Vertex Legacy platform reference data seeded."
+        : "Vertex Legacy demonstration data seeded.",
+    ),
+  )
   .finally(() => db.$disconnect());

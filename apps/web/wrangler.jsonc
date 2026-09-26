@@ -12,6 +12,7 @@
     "enabled": true,
   },
   "vars": {
+    "AUTH_PROVIDER": "auth0",
     "AUTH0_AUDIENCE": "https://api.vertex-legacy.com",
     "INTERNAL_API_URL": "https://api-production-8c96.up.railway.app/v1",
     "NEXT_PUBLIC_API_URL": "https://api-production-8c96.up.railway.app/v1",

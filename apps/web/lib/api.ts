@@ -4,9 +4,14 @@ import { auth0 } from "./auth0";
 const baseUrl = process.env.INTERNAL_API_URL ?? "http://localhost:4000/v1";
 
 export async function apiGet<T>(path: string): Promise<T> {
+  const isPublicPath = path === "/public" || path.startsWith("/public/");
   const useAuth0 = process.env.AUTH_PROVIDER === "auth0" || process.env.NODE_ENV === "production";
   const headers: Record<string, string> = {};
-  if (useAuth0) {
+  if (isPublicPath) {
+    // Public catalogue/configuration endpoints must also render for signed-out
+    // visitors. Asking Auth0 for a session token here turns a public page into
+    // an empty fallback in production.
+  } else if (useAuth0) {
     const { token } = await auth0.getAccessToken();
     headers.authorization = "Bearer " + token;
   } else {

@@ -412,6 +412,8 @@ model Plan {
   targetPerformanceLow    Decimal?          @db.Decimal(9, 6)
   targetPerformanceHigh   Decimal?          @db.Decimal(9, 6)
   performanceLabel        String            @default("Illustrative target")
+  dailyPayoutCentavos     BigInt            @default(0)
+  totalReturnCentavos     BigInt            @default(0)
   eligibilityRequirements Json
   terms                   String
   availableFrom           DateTime?

@@ -130,6 +130,9 @@ importers:
       '@vertex/api-client':
         specifier: workspace:*
         version: link:../../packages/api-client
+      '@vertex/config':
+        specifier: workspace:*
+        version: link:../../packages/config
       '@vertex/types':
         specifier: workspace:*
         version: link:../../packages/types

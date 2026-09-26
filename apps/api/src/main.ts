@@ -3,9 +3,12 @@ import { NestFactory } from "@nestjs/core";
 import { ValidationPipe } from "@nestjs/common";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
 import helmet from "helmet";
+import { loadEnvironment, normalizeOrigin } from "@vertex/config";
 import { AppModule } from "./app.module";
 
 async function bootstrap() {
+  const env = loadEnvironment();
+  const corsOrigin = normalizeOrigin(env.WEB_ORIGIN) ?? env.WEB_ORIGIN;
   const app = await NestFactory.create(AppModule, { rawBody: true });
   app.setGlobalPrefix("v1");
   app.use(
@@ -19,7 +22,7 @@ async function bootstrap() {
     }),
   );
   app.enableCors({
-    origin: process.env.WEB_ORIGIN ?? "http://localhost:3000",
+    origin: corsOrigin,
     credentials: true,
     allowedHeaders: [
       "authorization",
@@ -47,9 +50,22 @@ async function bootstrap() {
   SwaggerModule.setup("docs", app, SwaggerModule.createDocument(app, openApi));
 
   app.enableShutdownHooks();
-  await app.listen(
-    Number(process.env.PORT ?? process.env.API_PORT ?? 4000),
-    "0.0.0.0",
+  const port = Number(process.env.PORT ?? process.env.API_PORT ?? env.API_PORT);
+  await app.listen(port, "0.0.0.0");
+  console.log(
+    "Vertex Legacy API listening on " +
+      port +
+      " (" +
+      env.NODE_ENV +
+      ", auth=" +
+      env.AUTH_PROVIDER +
+      ", payment=" +
+      env.PAYMENT_PROVIDER +
+      ", payout=" +
+      env.PAYOUT_PROVIDER +
+      ", kyc=" +
+      env.KYC_PROVIDER +
+      ")",
   );
 }
 

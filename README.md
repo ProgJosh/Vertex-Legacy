@@ -100,7 +100,9 @@ Never update the wallet from a browser return URL. Provider state changes must a
 The production API is deployed from the repository root using `Dockerfile.api` and
 `railway.json`. The Railway service runs in Singapore, listens on Railway's injected
 `PORT`, applies Prisma migrations during container startup, idempotently bootstraps roles
-and public demonstration data, and checks `/v1/health` before switching traffic.
+and the public VIP/commission reference data, and checks `/v1/health` before switching
+traffic. Demo identities, demo balances, mock KYC records, and the demo announcement are
+seeded only when `NODE_ENV` is not `production`.
 
 Provision one PostgreSQL service and one API service. Set the API variables through
 Railway's encrypted variable store:
@@ -121,8 +123,9 @@ not enqueue jobs yet. Add Redis and the worker when queue-backed processing is w
 
 After Railway assigns the API domain, set both `INTERNAL_API_URL` and
 `NEXT_PUBLIC_API_URL` in the Cloudflare Workers environment to the Railway URL with the
-`/v1` suffix, then redeploy the web application. Store Auth0 secrets only in Cloudflare's
-encrypted secret store; never put them in repository files or public variables.
+`/v1` suffix, set `AUTH_PROVIDER=auth0`, then redeploy the web application. Store Auth0
+secrets only in Cloudflare's encrypted secret store; never put them in repository files or
+public variables.
 
 Cloudflare builds must run in Linux because the Windows-generated OpenNext bundle can
 retain a dynamic Next.js middleware-manifest import that Workers cannot execute. With
@@ -135,8 +138,13 @@ copies only the generated `.open-next` artifact back, and deploys it with Wrangl
 - [Existing-state audit](docs/EXISTING_STATE.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Security considerations](docs/SECURITY.md)
+- [Deployment runbook](docs/DEPLOYMENT.md)
 - [AWS baseline](infra/aws/README.md)
 
 ## Reference assets
 
-The supplied screenshots and video are retained in docs/reference for design provenance only. The product intentionally excludes their lime palette, casino-style rewards, daily-profit claims, deceptive urgency, and deposit-funded referral mechanics. The supplied logo.jfif is used as the official Vertex Legacy mark because logo(2).jfif was not present.
+The supplied screenshots and video are retained in docs/reference for design provenance. The
+client-confirmed VIP 1–10 and 27/2/1 schedules are represented as database-backed records with
+explicit risk disclosures. The product excludes deceptive urgency and deposit-funded referral
+mechanics. The supplied logo.jfif is used as the official Vertex Legacy mark because
+logo(2).jfif was not present.

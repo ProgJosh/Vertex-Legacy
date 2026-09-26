@@ -377,6 +377,94 @@ h3 {
   padding: 18px 20px;
 }
 
+.company-plans {
+  margin-top: 34px;
+}
+
+.company-plans-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.company-plans-header h2,
+.company-plans-levels h3 {
+  margin: 4px 0 8px;
+}
+
+.company-plans-header .muted {
+  max-width: 760px;
+  margin: 0;
+}
+
+.company-plans-table {
+  margin-top: 24px;
+}
+
+.company-plans-caption {
+  padding: 0 12px 12px;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: left;
+  caption-side: top;
+}
+
+.company-plans .data-table tbody th {
+  padding: 14px 12px;
+  border-bottom: 1px solid #26282a;
+  text-align: left;
+}
+
+.company-plans .data-table tbody tr:last-child th {
+  border-bottom: 0;
+}
+
+.company-plans-levels {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.65fr) minmax(0, 1.35fr);
+  gap: 24px;
+  align-items: center;
+  margin-top: 28px;
+  padding-top: 24px;
+  border-top: 1px solid var(--line);
+}
+
+.company-plans-levels .muted {
+  margin: 0;
+}
+
+.company-plans-level-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px;
+  margin: 0;
+  background: var(--line);
+  border: 1px solid var(--line);
+}
+
+.company-plans-level-grid > div {
+  padding: 18px;
+  background: var(--ink-raised);
+}
+
+.company-plans-level-grid dt {
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.company-plans-level-grid dd {
+  margin: 6px 0 0;
+  color: var(--gold-soft);
+  font-family: Georgia, serif;
+  font-size: 1.75rem;
+}
+
+.company-plans-notice {
+  margin: 24px 0 0;
+}
 .public-page {
   min-height: 68vh;
   padding: 68px 0 90px;
@@ -857,6 +945,14 @@ h3 {
   .page-heading {
     align-items: start;
     flex-direction: column;
+  }
+  .company-plans-header,
+  .company-plans-levels {
+    grid-template-columns: 1fr;
+    flex-direction: column;
+  }
+  .company-plans-level-grid {
+    grid-template-columns: 1fr;
   }
   .data-table {
     min-width: 680px;

@@ -78,10 +78,33 @@ export class AppController {
   @Public()
   @Get("public/plans")
   publicPlans() {
+    // Ascending minimum is ascending VIP tier, so the published schedule order is
+    // preserved without depending on a presentation-only badge.
     return this.prisma.plan.findMany({
       where: { status: "ACTIVE" },
-      orderBy: [{ promotionalBadge: "desc" }, { minimumCentavos: "asc" }],
+      orderBy: [{ minimumCentavos: "asc" }, { name: "asc" }],
     });
+  }
+
+  @Public()
+  @Get("public/commission-levels")
+  async publicCommissionLevels() {
+    const rules = await this.prisma.commissionRule.findMany({
+      where: { qualifyingEvent: "PLAN_SERVICE_FEE_CONFIRMED" },
+      orderBy: { rate: "desc" },
+    });
+    return rules.map((rule) => ({
+      id: rule.id,
+      name: rule.name,
+      rate: rule.rate.toString(),
+      level:
+        typeof rule.eligibility === "object" && rule.eligibility !== null
+          ? ((rule.eligibility as { level?: unknown }).level ?? null)
+          : null,
+      active: rule.active,
+      qualifyingEvent: rule.qualifyingEvent,
+      effectiveFrom: rule.effectiveFrom,
+    }));
   }
 
   @Public()
@@ -615,14 +638,7 @@ export class AppController {
     const before = await this.prisma.withdrawal.findUniqueOrThrow({
       where: { id },
     });
-    const updated = await this.prisma.withdrawal.update({
-      where: { id },
-      data: {
-        status: "PROCESSING",
-        reviewedBy: current.id,
-        reviewReason: reason,
-      },
-    });
+    const updated = await this.financial.approveWithdrawal(id, current.id, reason);
     await this.audit.record({
       actorUserId: current.id,
       action: "WITHDRAWAL_APPROVE",
@@ -630,8 +646,8 @@ export class AppController {
       resourceId: id,
       reason,
       outcome: "SUCCESS",
-      before: before as unknown as Prisma.InputJsonValue,
-      after: updated as unknown as Prisma.InputJsonValue,
+      before: { status: before.status } as unknown as Prisma.InputJsonValue,
+      after: { status: (updated as { status: string }).status } as unknown as Prisma.InputJsonValue,
     });
     return updated;
   }
@@ -654,6 +670,25 @@ export class AppController {
       outcome: "SUCCESS",
     });
     return result;
+  }
+
+  @RequirePermissions(Permissions.WITHDRAWAL_REVIEW)
+  @Post("admin/withdrawals/release-scheduled")
+  async releaseScheduled(
+    @CurrentUser() current: AuthenticatedUser,
+    @Body() body: unknown,
+  ) {
+    const { reason } = reasonSchema.parse(body);
+    const result = await this.financial.releaseDueScheduledWithdrawals();
+    await this.audit.record({
+      actorUserId: current.id,
+      action: "WITHDRAWAL_RELEASE_SCHEDULED",
+      resourceType: "Withdrawal",
+      reason,
+      outcome: "SUCCESS",
+      after: { released: result.count },
+    });
+    return { released: result.count };
   }
 
   @RequirePermissions(Permissions.WITHDRAWAL_REVIEW)
@@ -810,6 +845,8 @@ export class AppController {
         durationDays: z.coerce.number().int().positive().max(3_650),
         riskClassification: z.string().min(2).max(80),
         managementFeeRate: z.string().regex(/^0\.\d{1,6}$/),
+        dailyPayoutCentavos: z.string().regex(/^\d+$/).optional(),
+        totalReturnCentavos: z.string().regex(/^\d+$/).optional(),
         targetPerformanceLow: z
           .string()
           .regex(/^0\.\d{1,6}$/)
@@ -823,14 +860,36 @@ export class AppController {
         reason: z.string().min(8).max(500),
       })
       .parse(body);
-    const { reason, ...values } = input;
+    const { reason, dailyPayoutCentavos: dailyInput, totalReturnCentavos: totalInput, ...values } =
+      input;
+    const dailyPayoutCentavos = BigInt(dailyInput ?? "0");
+    const totalReturnCentavos = totalInput
+      ? BigInt(totalInput)
+      : dailyPayoutCentavos * BigInt(values.durationDays);
+    const minimumCentavos = BigInt(values.minimumCentavos);
+    const maximumCentavos = values.maximumCentavos
+      ? BigInt(values.maximumCentavos)
+      : null;
+    if (maximumCentavos !== null && maximumCentavos < minimumCentavos) {
+      throw new BadRequestException(
+        "Maximum subscription amount cannot be lower than the minimum.",
+      );
+    }
+    if (
+      totalReturnCentavos !==
+      dailyPayoutCentavos * BigInt(values.durationDays)
+    ) {
+      throw new BadRequestException(
+        "Total return must equal daily payout multiplied by duration days.",
+      );
+    }
     const plan = await this.prisma.plan.create({
       data: {
         ...values,
-        minimumCentavos: BigInt(values.minimumCentavos),
-        maximumCentavos: values.maximumCentavos
-          ? BigInt(values.maximumCentavos)
-          : null,
+        minimumCentavos,
+        maximumCentavos,
+        dailyPayoutCentavos,
+        totalReturnCentavos,
         managementFeeRate: new Prisma.Decimal(values.managementFeeRate),
         targetPerformanceLow: values.targetPerformanceLow
           ? new Prisma.Decimal(values.targetPerformanceLow)
@@ -904,6 +963,7 @@ export class AppController {
         rate: z.string().regex(/^0\.\d{1,6}$/),
         capCentavos: z.string().regex(/^\d+$/).nullable(),
         minimumSourceCentavos: z.string().regex(/^\d+$/).nullable(),
+        level: z.coerce.number().int().min(1).max(3),
         effectiveFrom: z.string().datetime(),
         reason: z.string().min(8).max(500),
       })
@@ -921,6 +981,7 @@ export class AppController {
           kyc: "VERIFIED",
           selfReferral: false,
           depositAloneQualifies: false,
+          level: input.level,
         },
         effectiveFrom: new Date(input.effectiveFrom),
       },

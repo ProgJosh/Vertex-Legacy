@@ -2,34 +2,31 @@ import Link from "next/link";
 import { formatPhp } from "@vertex/ui";
 import { optionalApiGet } from "@/lib/api";
 import { Button } from "@/components/ui/button";
-
-type Plan = {
-  slug: string;
-  name: string;
-  description: string;
-  category: string;
-  minimumCentavos: string;
-  maximumCentavos: string | null;
-  durationDays: number;
-  riskClassification: string;
-  performanceLabel: string;
-  promotionalBadge: string | null;
-};
+import {
+  CompanyPlans,
+  type CommissionLevel,
+  type CompanyPlan,
+} from "@/components/company-plans";
 
 export default async function PlansPage() {
-  const plans = await optionalApiGet<Plan[]>("/public/plans", []);
+  const [plans, levels] = await Promise.all([
+    optionalApiGet<CompanyPlan[]>("/public/plans", []),
+    optionalApiGet<CommissionLevel[]>("/public/commission-levels", []),
+  ]);
+
   return (
     <div className="container public-page">
       <div className="public-page-intro">
         <div>
           <p className="eyebrow">Company plans</p>
-          <h1>Compare the mandate, not the marketing.</h1>
+          <h1>Compare the schedule, not the marketing.</h1>
         </div>
         <p className="muted">
-          Review duration, configured limits, risk classification, fees, capacity, eligibility,
-          and full terms before making a subscription request.
+          Review price, daily payout, cycle length, stated total return, risk classification,
+          eligibility and full terms before making a subscription request.
         </p>
       </div>
+
       {plans.length ? (
         <div className="plan-grid" style={{ marginTop: 34 }}>
           {plans.map((plan) => (
@@ -39,20 +36,24 @@ export default async function PlansPage() {
               <p className="muted">{plan.description}</p>
               <div className="plan-meta">
                 <span>
-                  <small>Minimum</small>
+                  <small>Price</small>
                   {formatPhp(plan.minimumCentavos)}
                 </span>
                 <span>
-                  <small>Duration</small>
+                  <small>Daily payout</small>
+                  {BigInt(plan.dailyPayoutCentavos) > 0n
+                    ? formatPhp(plan.dailyPayoutCentavos)
+                    : "Not scheduled"}
+                </span>
+                <span>
+                  <small>Cycle</small>
                   {plan.durationDays} days
                 </span>
                 <span>
-                  <small>Risk</small>
-                  {plan.riskClassification}
-                </span>
-                <span>
-                  <small>Performance</small>
-                  {plan.performanceLabel}
+                  <small>Stated total return</small>
+                  {BigInt(plan.totalReturnCentavos) > 0n
+                    ? formatPhp(plan.totalReturnCentavos)
+                    : "Not scheduled"}
                 </span>
               </div>
               <Button asChild variant="secondary">
@@ -66,9 +67,8 @@ export default async function PlansPage() {
           No plans are currently available.
         </div>
       )}
-      <p className="disclosure" style={{ marginTop: 24 }}>
-        Plan targets are illustrative and returns are not guaranteed. You can lose capital.
-      </p>
+
+      <CompanyPlans plans={plans} levels={levels} />
     </div>
   );
 }

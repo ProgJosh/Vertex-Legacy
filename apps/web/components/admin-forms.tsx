@@ -146,6 +146,8 @@ export function PlanForm() {
     durationDays: "365",
     riskClassification: "Moderate",
     managementFeeRate: "0.015000",
+    dailyPayoutCentavos: "0",
+    totalReturnCentavos: "0",
     targetPerformanceLow: "0.040000",
     targetPerformanceHigh: "0.080000",
     terms: "",
@@ -176,6 +178,8 @@ export function PlanForm() {
           ["durationDays", "Duration days"],
           ["riskClassification", "Risk classification"],
           ["managementFeeRate", "Management fee rate"],
+          ["dailyPayoutCentavos", "Daily payout (centavos)"],
+          ["totalReturnCentavos", "Total return (centavos)"],
           ["targetPerformanceLow", "Illustrative target low"],
           ["targetPerformanceHigh", "Illustrative target high"],
         ] as const).map(([key, label]) => (
@@ -200,6 +204,7 @@ export function CommissionRuleForm() {
   const [values, setValues] = useState({
     name: "",
     rate: "0.100000",
+    level: "1",
     capCentavos: "",
     minimumSourceCentavos: "",
     effectiveFrom: new Date().toISOString(),
@@ -218,6 +223,7 @@ export function CommissionRuleForm() {
       <div className="field"><label>Rule name</label><input value={values.name} onChange={(e) => setValues({ ...values, name: e.target.value })} /></div>
       <div className="form-grid">
         <div className="field"><label>Rate</label><input value={values.rate} onChange={(e) => setValues({ ...values, rate: e.target.value })} /></div>
+        <div className="field"><label>Referral level</label><select value={values.level} onChange={(e) => setValues({ ...values, level: e.target.value })}><option value="1">Level 1</option><option value="2">Level 2</option><option value="3">Level 3</option></select></div>
         <div className="field"><label>Cap (centavos)</label><input value={values.capCentavos} onChange={(e) => setValues({ ...values, capCentavos: e.target.value })} /></div>
       </div>
       <div className="field" style={{ marginTop: 16 }}><label>Minimum qualifying fee (centavos)</label><input value={values.minimumSourceCentavos} onChange={(e) => setValues({ ...values, minimumSourceCentavos: e.target.value })} /></div>
