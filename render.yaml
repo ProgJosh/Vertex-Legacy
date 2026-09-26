@@ -34,6 +34,16 @@ services:
         value: https://vertex-legacy-api.onrender.com
       - key: AUTH0_AUDIENCE
         value: https://api.vertex-legacy.com
+      # DATABASE_URL auto-injected from database
+      - key: DATABASE_URL
+        fromDatabase:
+          name: vertex-legacy-db
+          property: connectionString
+      # REDIS_URL auto-injected from redis
+      - key: REDIS_URL
+        fromRedis:
+          name: vertex-legacy-redis
+          property: connectionString
     healthCheckPath: /v1/health
 
 databases:
@@ -43,5 +53,7 @@ databases:
     region: oregon
     plan: free
 
-# Redis: Create manually in Render Dashboard (New → Redis) - free tier available
-# Name: vertex-legacy-redis, region: oregon, plan: free
+redis:
+  - name: vertex-legacy-redis
+    plan: free
+    region: oregon
