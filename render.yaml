@@ -39,7 +39,7 @@ services:
         fromDatabase:
           name: vertex-legacy-db
           property: connectionString
-      # REDIS_URL auto-injected from redis
+      # REDIS_URL auto-injected from redis (create Redis manually in dashboard)
       - key: REDIS_URL
         fromRedis:
           name: vertex-legacy-redis
@@ -53,7 +53,5 @@ databases:
     region: oregon
     plan: free
 
-redis:
-  - name: vertex-legacy-redis
-    plan: free
-    region: oregon
+# Redis: Create manually in Render Dashboard → New → Redis
+# Name: vertex-legacy-redis, Region: oregon, Plan: free
