@@ -4,8 +4,16 @@
 services:
   - type: web
     name: vertex-legacy-api
-    runtime: docker
-    dockerfilePath: ./Dockerfile.api
+    runtime: node
+    buildCommand: |
+      corepack enable
+      corepack pnpm install --frozen-lockfile
+      corepack pnpm --filter @vertex/database generate
+      corepack pnpm --filter @vertex/api build
+    startCommand: |
+      corepack pnpm --filter @vertex/database migrate:deploy
+      corepack pnpm --filter @vertex/database seed
+      corepack pnpm --filter @vertex/api start
     region: oregon
     plan: free
     autoDeploy: true
@@ -23,7 +31,7 @@ services:
       - key: API_PORT
         value: "4000"
       - key: WEB_ORIGIN
-        value: https://vertex-legacy-staging.onrender.com
+        value: https://vertex-legacy-api.onrender.com
       - key: AUTH0_AUDIENCE
         value: https://api.vertex-legacy.com
     healthCheckPath: /v1/health
