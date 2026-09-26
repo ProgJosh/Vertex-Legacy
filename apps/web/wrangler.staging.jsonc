@@ -1,0 +1,21 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "vertex-legacy-staging",
+  "main": ".open-next/worker.js",
+  "compatibility_date": "2026-09-25",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+  "observability": {
+    "enabled": true
+  },
+  "vars": {
+    "AUTH_PROVIDER": "mock",
+    "AUTH0_AUDIENCE": "https://api.vertex-legacy.com",
+    "INTERNAL_API_URL": "https://vertex-legacy-api-staging.fly.dev/v1",
+    "NEXT_PUBLIC_API_URL": "https://vertex-legacy-api-staging.fly.dev/v1",
+    "WEB_ORIGIN": "https://vertex-legacy-staging.joshua27emmanuel30.workers.dev"
+  }
+}

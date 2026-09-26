@@ -9,6 +9,9 @@ import { AuditService } from "./services/audit.service";
 import { ConfigService } from "./services/config.service";
 import { LedgerService } from "./services/ledger.service";
 import { ProvidersService } from "./services/providers.service";
+import { PaymentProviderRegistry } from "./services/payment-providers";
+import { PayMongoProvider } from "./services/payment-providers/paymongo.provider";
+import { XenditProvider } from "./services/payment-providers/xendit.provider";
 import { FinancialService } from "./services/financial.service";
 import { CommissionService } from "./services/commission.service";
 import { UserService } from "./services/user.service";
@@ -31,6 +34,9 @@ import { BigIntInterceptor } from "./common/bigint.interceptor";
     ConfigService,
     LedgerService,
     ProvidersService,
+    PaymentProviderRegistry,
+    PayMongoProvider,
+    XenditProvider,
     FinancialService,
     CommissionService,
     UserService,

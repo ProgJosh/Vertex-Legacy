@@ -1,5 +1,10 @@
-import { BadRequestException, Injectable, ServiceUnavailableException } from "@nestjs/common";
+import {
+  BadRequestException,
+  Injectable,
+  ServiceUnavailableException,
+} from "@nestjs/common";
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
+import { PaymentProviderRegistry, PaymentProvider, WebhookEvent, CheckoutSession, PayoutInstruction } from "./payment-providers";
 
 export type Checkout = {
   provider: string;
@@ -9,29 +14,79 @@ export type Checkout = {
 
 @Injectable()
 export class ProvidersService {
-  assertSandbox(kind: "payment" | "payout" | "kyc") {
-    const key =
-      kind === "payment" ? "PAYMENT_PROVIDER" : kind === "payout" ? "PAYOUT_PROVIDER" : "KYC_PROVIDER";
-    if (process.env[key] !== "mock" || process.env.NODE_ENV === "production") {
-      throw new ServiceUnavailableException("The requested sandbox provider is not enabled.");
-    }
+  private readonly activePaymentProvider: string;
+  private readonly activePayoutProvider: string;
+  private readonly activeKycProvider: string;
+
+  constructor(private readonly registry: PaymentProviderRegistry) {
+    this.activePaymentProvider = process.env.PAYMENT_PROVIDER ?? "mock";
+    this.activePayoutProvider = process.env.PAYOUT_PROVIDER ?? "mock";
+    this.activeKycProvider = process.env.KYC_PROVIDER ?? "mock";
   }
 
-  /**
-   * Guards reservation of withdrawal funds. A licensed deployment has no
-   * settlement path wired up yet, so accepting a request would move customer
-   * money into the reserve account with no way to pay it out or release it.
-   */
-  assertPayoutAvailable() {
-    if (process.env.PAYOUT_PROVIDER !== "mock") {
+  private getPaymentProvider(): PaymentProvider {
+    const provider = this.registry.get(this.activePaymentProvider);
+    if (!provider && this.activePaymentProvider !== "mock") {
+      throw new ServiceUnavailableException(
+        `Payment provider "${this.activePaymentProvider}" not registered`,
+      );
+    }
+    return provider!;
+  }
+
+  private getPayoutProvider(): PaymentProvider {
+    const provider = this.registry.get(this.activePayoutProvider);
+    if (!provider && this.activePayoutProvider !== "mock") {
+      throw new ServiceUnavailableException(
+        `Payout provider "${this.activePayoutProvider}" not registered`,
+      );
+    }
+    return provider!;
+  }
+
+  assertSandbox(kind: "payment" | "payout" | "kyc"): void {
+    const key =
+      kind === "payment" ? "PAYMENT_PROVIDER" : kind === "payout" ? "PAYOUT_PROVIDER" : "KYC_PROVIDER";
+    if (process.env[key] === "mock" && process.env.NODE_ENV !== "production") {
+      return;
+    }
+    if (process.env[key] !== "mock") {
+      return;
+    }
+    throw new ServiceUnavailableException("The requested sandbox provider is not enabled.");
+  }
+
+  assertPayoutAvailable(): void {
+    if (this.activePayoutProvider === "mock") {
       throw new ServiceUnavailableException(
         "Payouts are not enabled. A licensed payout adapter must be configured before withdrawals can be requested.",
       );
     }
   }
 
-  createDepositCheckout(depositId: string): Checkout {
-    this.assertSandbox("payment");
+  async createDepositCheckout(params: {
+    depositId: string;
+    amountCentavos: bigint;
+    currency: string;
+    customerEmail: string;
+    customerPhone: string | undefined;
+    returnUrl: string | undefined;
+    webhookUrl: string;
+  }): Promise<Checkout> {
+    if (this.activePaymentProvider === "mock") {
+      return this.createMockDepositCheckout(params.depositId);
+    }
+
+    const provider = this.getPaymentProvider();
+    const session = await provider.createDepositCheckout(params);
+    return {
+      provider: session.provider,
+      providerReference: session.providerReference,
+      checkoutUrl: session.checkoutUrl,
+    };
+  }
+
+  private createMockDepositCheckout(depositId: string): Checkout {
     return {
       provider: "mock",
       providerReference: "mock_dep_" + randomUUID(),
@@ -39,16 +94,80 @@ export class ProvidersService {
     };
   }
 
-  sign(payload: string) {
+  async createPayout(params: {
+    withdrawalId: string;
+    amountCentavos: bigint;
+    currency: string;
+    destination: {
+      type: "ewallet" | "bank_account";
+      accountHolderName: string;
+      accountDetails: Record<string, string | undefined>;
+    };
+    webhookUrl: string;
+  }): Promise<{
+    provider: string;
+    providerReference: string;
+    status: "pending" | "processing" | "completed" | "failed";
+  }> {
+    if (this.activePayoutProvider === "mock") {
+      return {
+        provider: "mock",
+        providerReference: "mock_payout_" + randomUUID(),
+        status: "pending",
+      };
+    }
+
+    const provider = this.getPayoutProvider();
+    const instruction = await provider.createPayout(params);
+    return {
+      provider: instruction.provider,
+      providerReference: instruction.providerReference,
+      status: instruction.status,
+    };
+  }
+
+  sign(payload: string): string {
     const secret = process.env.MOCK_PROVIDER_WEBHOOK_SECRET ?? "local-development-only";
     return createHmac("sha256", secret).update(payload).digest("hex");
   }
 
-  verify(payload: string, signature: string) {
-    const expected = Buffer.from(this.sign(payload), "utf8");
-    const received = Buffer.from(signature, "utf8");
-    if (expected.length !== received.length || !timingSafeEqual(expected, received)) {
-      throw new BadRequestException("Invalid provider signature.");
+  verify(payload: string, signature: string): boolean {
+    if (this.activePaymentProvider === "mock" && this.activePayoutProvider === "mock") {
+      const expected = Buffer.from(this.sign(payload), "utf8");
+      const received = Buffer.from(signature, "utf8");
+      return expected.length === received.length && timingSafeEqual(expected, received);
     }
+
+    const paymentProvider = this.registry.get(this.activePaymentProvider);
+    if (paymentProvider?.verifyWebhookSignature(payload, signature)) {
+      return true;
+    }
+
+    const payoutProvider = this.registry.get(this.activePayoutProvider);
+    if (payoutProvider?.verifyWebhookSignature(payload, signature)) {
+      return true;
+    }
+
+    return false;
+  }
+
+  parseWebhookEvent(rawPayload: unknown, signature: string): WebhookEvent | null {
+    if (this.activePaymentProvider === "mock" && this.activePayoutProvider === "mock") {
+      return null;
+    }
+
+    const paymentProvider = this.registry.get(this.activePaymentProvider);
+    if (paymentProvider) {
+      const event = paymentProvider.parseWebhookEvent(rawPayload, signature);
+      if (event) return event;
+    }
+
+    const payoutProvider = this.registry.get(this.activePayoutProvider);
+    if (payoutProvider) {
+      const event = payoutProvider.parseWebhookEvent(rawPayload, signature);
+      if (event) return event;
+    }
+
+    return null;
   }
 }

@@ -9,6 +9,8 @@ import { FinancialService } from "../src/services/financial.service";
 import { PlanService } from "../src/services/plan.service";
 import { PrismaService } from "../src/services/prisma.service";
 import { UserService } from "../src/services/user.service";
+import { ProvidersService } from "../src/services/providers.service";
+import { PaymentProviderRegistry } from "../src/services/payment-providers";
 
 describe("HTTP integration", () => {
   let app: INestApplication;
@@ -23,6 +25,8 @@ describe("HTTP integration", () => {
         { provide: UserService, useValue: {} },
         { provide: PlanService, useValue: {} },
         { provide: AuditService, useValue: {} },
+        { provide: ProvidersService, useValue: {} },
+        { provide: PaymentProviderRegistry, useValue: new PaymentProviderRegistry() },
       ],
     }).compile();
     app = module.createNestApplication();

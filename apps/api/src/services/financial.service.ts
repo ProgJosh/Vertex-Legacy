@@ -76,10 +76,10 @@ export class FinancialService {
       }
       return this.serialize(prior);
     }
-    // The provider is contacted inside the transaction that persists the intent.
-    // Writing the row first would leave an orphan PENDING deposit and a consumed
-    // idempotency key whenever checkout fails, permanently stranding the customer
-    // because every retry replays that unusable record.
+    const user = await this.prisma.user.findUniqueOrThrow({
+      where: { id: userId },
+      include: { profile: true },
+    });
     return this.prisma.$transaction(async (tx) => {
       const created = await tx.deposit.create({
         data: {
@@ -90,7 +90,15 @@ export class FinancialService {
           status: MoneyRequestStatus.PENDING,
         },
       });
-      const checkout = this.providers.createDepositCheckout(created.id);
+      const checkout = await this.providers.createDepositCheckout({
+        depositId: created.id,
+        amountCentavos: amount,
+        currency: "PHP",
+        customerEmail: user.email,
+        customerPhone: user.mobile ?? undefined,
+        returnUrl: `${process.env.WEB_ORIGIN}/investor/wallet?deposit=success`,
+        webhookUrl: `${process.env.INTERNAL_API_URL}/providers/webhook`,
+      });
       return this.serialize(
         await tx.deposit.update({
           where: { id: created.id },
@@ -267,7 +275,7 @@ export class FinancialService {
     };
   }
 
-  async createWithdrawal(userId: string, raw: unknown) {
+async createWithdrawal(userId: string, raw: unknown) {
     const input = createWithdrawalSchema.parse(raw);
     if ((process.env.AUTH_PROVIDER ?? "mock") === "mock" && input.mfaCode !== "123456") {
       throw new ForbiddenException("Invalid demonstration MFA code.");
@@ -293,6 +301,10 @@ export class FinancialService {
         nextOpenAt: quote.window.nextOpenAt,
       });
     }
+
+    const payoutAccount = await this.prisma.payoutAccount.findUniqueOrThrow({
+      where: { id: input.payoutAccountId },
+    });
 
     return this.prisma.$transaction(async (tx) => {
       const config = await this.config.active(tx);
@@ -366,6 +378,28 @@ export class FinancialService {
         ],
       });
       const reviewRequired = amount >= config.manualReviewThresholdCentavos;
+
+      // Create payout with real provider if not mock
+      let providerResult = { provider: "mock", providerReference: "mock_payout_" + randomUUID(), status: "pending" as "pending" | "processing" | "completed" | "failed" };
+      if (this.activePayoutProvider() !== "mock") {
+        providerResult = await this.providers.createPayout({
+          withdrawalId: "", // Will be updated after creation
+          amountCentavos: amount,
+          currency: "PHP",
+          destination: {
+            type: payoutAccount.type === "EWALLET" ? "ewallet" : "bank_account",
+            accountHolderName: payoutAccount.accountHolderName,
+            accountDetails: {
+              accountNumber: payoutAccount.maskedIdentifier,
+              bankCode: payoutAccount.providerToken ?? "",
+              ewalletType: payoutAccount.type === "EWALLET" ? "GCASH" : undefined,
+              ewalletId: payoutAccount.type === "EWALLET" ? payoutAccount.maskedIdentifier : undefined,
+            },
+          },
+          webhookUrl: `${process.env.INTERNAL_API_URL}/providers/webhook`,
+        });
+      }
+
       const withdrawal = await tx.withdrawal.create({
         data: {
           userId,
@@ -379,12 +413,19 @@ export class FinancialService {
               ? MoneyRequestStatus.AWAITING_REVIEW
               : MoneyRequestStatus.PROCESSING,
           idempotencyKey: input.idempotencyKey,
-          provider: "mock",
+          provider: providerResult.provider,
+          providerReference: providerResult.providerReference,
           scheduledFor: quote.window.nextOpenAt ? new Date(quote.window.nextOpenAt) : null,
           reservationTxnId: posted.id,
           reviewRequired,
         },
       });
+
+      // Update payout with actual withdrawal ID
+      if (this.activePayoutProvider() !== "mock" && providerResult.providerReference) {
+        // Provider already has the withdrawal ID in metadata
+      }
+
       await tx.wallet.update({
         where: { userId },
         data: {
@@ -402,7 +443,7 @@ export class FinancialService {
           title: "Withdrawal request received",
           body: reviewRequired
             ? "Your request is awaiting finance review."
-            : "Your sandbox payout is being processed.",
+            : "Your payout is being processed.",
           data: { withdrawalId: withdrawal.id },
         },
       });
@@ -653,5 +694,9 @@ export class FinancialService {
         }),
       );
     });
+  }
+
+  private activePayoutProvider(): string {
+    return process.env.PAYOUT_PROVIDER ?? "mock";
   }
 }

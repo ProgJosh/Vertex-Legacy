@@ -16,9 +16,13 @@ describe("deposit checkout integrity", () => {
         create: vi.fn().mockResolvedValue(created),
         update: vi.fn(),
       },
+      user: {
+        findUniqueOrThrow: vi.fn().mockResolvedValue({ email: "test@example.com", mobile: null }),
+      },
     };
     const prisma = {
       deposit: { findUnique: vi.fn().mockResolvedValue(null) },
+      user: { findUniqueOrThrow: vi.fn().mockResolvedValue({ email: "test@example.com", mobile: null }) },
       $transaction: vi.fn(async (callback: (client: typeof tx) => unknown) => callback(tx)),
     };
     const config = {
@@ -59,6 +63,7 @@ describe("deposit checkout integrity", () => {
     };
     const prisma = {
       deposit: { findUnique: vi.fn().mockResolvedValue(existing) },
+      user: { findUniqueOrThrow: vi.fn().mockResolvedValue({ email: "test@example.com", mobile: null }) },
       $transaction: vi.fn(),
     };
     const config = {

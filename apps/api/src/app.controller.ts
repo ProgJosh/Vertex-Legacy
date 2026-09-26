@@ -11,6 +11,8 @@ import {
   Patch,
   Post,
   Query,
+  RawBodyRequest,
+  Req,
 } from "@nestjs/common";
 import { ApiBearerAuth, ApiTags } from "@nestjs/swagger";
 import { Prisma } from "@prisma/client";
@@ -28,6 +30,11 @@ import { FinancialService } from "./services/financial.service";
 import { UserService } from "./services/user.service";
 import { PlanService } from "./services/plan.service";
 import { AuditService } from "./services/audit.service";
+import { ProvidersService } from "./services/providers.service";
+import { WebhookEvent } from "./services/payment-providers";
+import { LedgerAccountType, MoneyRequestStatus } from "@prisma/client";
+import { parseCentavos } from "@vertex/types";
+import { randomUUID } from "node:crypto";
 
 const reasonSchema = z.object({ reason: z.string().min(8).max(500) });
 
@@ -42,6 +49,7 @@ export class AppController {
     @Inject(UserService) private readonly users: UserService,
     @Inject(PlanService) private readonly plans: PlanService,
     @Inject(AuditService) private readonly audit: AuditService,
+    @Inject(ProvidersService) private readonly providers: ProvidersService,
   ) {}
 
   @Public()
@@ -1112,6 +1120,237 @@ export class AppController {
       outcome: "SUCCESS",
     });
     return run;
+  }
+
+  @Public()
+  @Post("providers/webhook")
+  async providerWebhook(
+    @Req() req: RawBodyRequest<Request>,
+    @Headers("x-paymongo-signature") paymongoSig?: string,
+    @Headers("x-xendit-signature") xenditSig?: string,
+    @Headers("x-webhook-signature") genericSig?: string,
+  ) {
+    const rawBody = (req.rawBody as Buffer)?.toString("utf8") ?? JSON.stringify(req.body);
+    const signature = paymongoSig ?? xenditSig ?? genericSig;
+
+    if (!signature) {
+      throw new BadRequestException("Missing webhook signature");
+    }
+
+    const event = this.providers.parseWebhookEvent(JSON.parse(rawBody), signature);
+    if (!event) {
+      throw new BadRequestException("Invalid webhook signature or unsupported event");
+    }
+
+    // Store webhook for audit
+    const webhookRecord = await this.prisma.providerWebhook.create({
+      data: {
+        provider: event.eventType.startsWith("deposit") ? "payment" : "payout",
+        externalEventId: event.providerReference,
+        eventType: event.eventType,
+        signature,
+        rawPayload: event.rawPayload as any,
+        status: "RECEIVED",
+      },
+    });
+
+    try {
+      if (event.eventType === "deposit.completed") {
+        await this.handleDepositCompleted(event, webhookRecord.id);
+      } else if (event.eventType === "deposit.failed") {
+        await this.handleDepositFailed(event, webhookRecord.id);
+      } else if (event.eventType === "payout.completed") {
+        await this.handlePayoutCompleted(event, webhookRecord.id);
+      } else if (event.eventType === "payout.failed") {
+        await this.handlePayoutFailed(event, webhookRecord.id);
+      }
+
+      await this.prisma.providerWebhook.update({
+        where: { id: webhookRecord.id },
+        data: { status: "PROCESSED", processedAt: new Date() },
+      });
+
+      return { received: true };
+    } catch (error) {
+      await this.prisma.providerWebhook.update({
+        where: { id: webhookRecord.id },
+        data: {
+          status: "FAILED",
+          processedAt: new Date(),
+          processingResult: { error: error instanceof Error ? error.message : String(error) },
+        },
+      });
+      throw error;
+    }
+  }
+
+  private async handleDepositCompleted(event: WebhookEvent, webhookId: string) {
+    const deposit = await this.prisma.deposit.findUnique({
+      where: { providerReference: event.providerReference },
+    });
+
+    if (!deposit) {
+      throw new Error(`Deposit not found for provider reference ${event.providerReference}`);
+    }
+
+    if (deposit.status === MoneyRequestStatus.COMPLETED) {
+      return; // Idempotent
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      const platformCash = await tx.ledgerAccount.findUniqueOrThrow({
+        where: { code: "PLATFORM:CASH" },
+      });
+      const userCash = await tx.ledgerAccount.findFirstOrThrow({
+        where: { userId: deposit.userId, type: LedgerAccountType.USER_DEPOSITED_CASH },
+      });
+      const posted = await this.financial["ledger"].post(tx, {
+        reference: "DEP-" + deposit.id.slice(0, 8).toUpperCase(),
+        idempotencyKey: "deposit:" + deposit.id,
+        kind: "DEPOSIT_SETTLEMENT",
+        description: `${event.metadata?.payment_method ?? "Payment"} deposit settlement`,
+        metadata: { depositId: deposit.id, providerReference: deposit.providerReference },
+        lines: [
+          { accountId: platformCash.id, direction: "DEBIT", amountCentavos: deposit.amountCentavos },
+          { accountId: userCash.id, direction: "CREDIT", amountCentavos: deposit.amountCentavos },
+        ],
+      });
+      await tx.deposit.update({
+        where: { id: deposit.id },
+        data: {
+          status: MoneyRequestStatus.COMPLETED,
+          completedAt: new Date(),
+          ledgerTransactionId: posted.id,
+        },
+      });
+      await tx.wallet.update({
+        where: { userId: deposit.userId },
+        data: {
+          depositedAvailableCentavos: { increment: deposit.amountCentavos },
+          projectionVersion: { increment: 1 },
+        },
+      });
+      await tx.notification.create({
+        data: {
+          userId: deposit.userId,
+          type: "DEPOSIT_COMPLETED",
+          title: "Cash-in completed",
+          body: "Your deposit is now reflected in your balance.",
+          data: { depositId: deposit.id },
+        },
+      });
+    });
+  }
+
+  private async handleDepositFailed(event: WebhookEvent, webhookId: string) {
+    const deposit = await this.prisma.deposit.findUnique({
+      where: { providerReference: event.providerReference },
+    });
+
+    if (!deposit) return;
+
+    await this.prisma.deposit.update({
+      where: { id: deposit.id },
+      data: {
+        status: MoneyRequestStatus.FAILED,
+        failureReason: event.metadata?.failure_message as string ?? "Payment failed",
+      },
+    });
+    await this.prisma.notification.create({
+      data: {
+        userId: deposit.userId,
+        type: "DEPOSIT_FAILED",
+        title: "Cash-in failed",
+        body: "Your deposit could not be processed. Please try again.",
+        data: { depositId: deposit.id },
+      },
+    });
+  }
+
+  private async handlePayoutCompleted(event: WebhookEvent, webhookId: string) {
+    const withdrawal = await this.prisma.withdrawal.findUnique({
+      where: { providerReference: event.providerReference },
+    });
+
+    if (!withdrawal) {
+      throw new Error(`Withdrawal not found for provider reference ${event.providerReference}`);
+    }
+
+    if (withdrawal.status === MoneyRequestStatus.COMPLETED) {
+      return; // Idempotent
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      const reserve = await tx.ledgerAccount.findFirstOrThrow({
+        where: { userId: withdrawal.userId, type: LedgerAccountType.USER_WITHDRAWAL_RESERVE },
+      });
+      const platformCash = await tx.ledgerAccount.findUniqueOrThrow({
+        where: { code: "PLATFORM:CASH" },
+      });
+      let feeRevenue = await tx.ledgerAccount.findUnique({
+        where: { code: "PLATFORM:FEE_REVENUE" },
+      });
+      if (!feeRevenue) {
+        feeRevenue = await tx.ledgerAccount.create({
+          data: {
+            code: "PLATFORM:FEE_REVENUE",
+            name: "Withdrawal fee revenue",
+            type: LedgerAccountType.PLATFORM_FEE_REVENUE,
+            normalBalance: "CREDIT",
+          },
+        });
+      }
+      const posted = await this.financial["ledger"].post(tx, {
+        reference: "WDR-SET-" + withdrawal.id.slice(0, 8).toUpperCase(),
+        idempotencyKey: "withdrawal:settle:" + withdrawal.id,
+        kind: "WITHDRAWAL_SETTLEMENT",
+        description: "Payout settlement and withdrawal fee",
+        metadata: { withdrawalId: withdrawal.id, providerReference: withdrawal.providerReference },
+        lines: [
+          { accountId: reserve.id, direction: "DEBIT", amountCentavos: withdrawal.requestedCentavos },
+          { accountId: platformCash.id, direction: "CREDIT", amountCentavos: withdrawal.netCentavos },
+          { accountId: feeRevenue.id, direction: "CREDIT", amountCentavos: withdrawal.feeCentavos },
+        ],
+      });
+      await tx.withdrawal.update({
+        where: { id: withdrawal.id },
+        data: {
+          status: MoneyRequestStatus.COMPLETED,
+          settlementTxnId: posted.id,
+          completedAt: new Date(),
+        },
+      });
+      await tx.wallet.update({
+        where: { userId: withdrawal.userId },
+        data: {
+          reservedCentavos: { decrement: withdrawal.requestedCentavos },
+          projectionVersion: { increment: 1 },
+        },
+      });
+      await tx.notification.create({
+        data: {
+          userId: withdrawal.userId,
+          type: "WITHDRAWAL_COMPLETED",
+          title: "Withdrawal completed",
+          body: "The payout has been sent to your account.",
+          data: { withdrawalId: withdrawal.id },
+        },
+      });
+    });
+  }
+
+  private async handlePayoutFailed(event: WebhookEvent, webhookId: string) {
+    const withdrawal = await this.prisma.withdrawal.findUnique({
+      where: { providerReference: event.providerReference },
+    });
+
+    if (!withdrawal) return;
+
+    const failureReason = event.metadata?.failure_message as string ?? "Payout failed";
+
+    await this.prisma.$transaction(async (tx) => {
+      await this.financial.reverseFailedWithdrawal(withdrawal.id, failureReason);
+    });
   }
 
   @RequirePermissions(Permissions.AUDIT_READ)

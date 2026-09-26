@@ -422,6 +422,14 @@ model Plan {
   subscribedCentavos      BigInt            @default(0)
   status                  PlanStatus        @default(DRAFT)
   promotionalBadge        String?
+  // Product types
+  productType             String            @default("subscription") // "subscription" | "buy" | "daily"
+  // For "buy" products - one-time purchase with fixed return
+  fixedReturnCentavos     BigInt?           // Total return for buy products
+  // For "daily" products - daily earning products
+  dailyRateBasisPoints    Int?              // Daily rate in basis points (e.g., 100 = 1% daily)
+  maxDurationDays         Int?              // Maximum duration for daily products
+  autoRenew               Boolean           @default(false)
   createdAt               DateTime          @default(now())
   updatedAt               DateTime          @updatedAt
   documents               PlanDocument[]

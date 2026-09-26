@@ -1,6 +1,7 @@
 import { BadRequestException } from "@nestjs/common";
 import { describe, expect, it, vi } from "vitest";
 import { AppController } from "./app.controller";
+import { PaymentProviderRegistry } from "./services/payment-providers";
 
 const validPlan = {
   slug: "vip-test",
@@ -22,6 +23,7 @@ const validPlan = {
 } as const;
 
 function controllerWith(prisma: Record<string, unknown>, audit = { record: vi.fn() }) {
+  const registry = new PaymentProviderRegistry();
   return {
     controller: new AppController(
       prisma as never,
@@ -30,6 +32,7 @@ function controllerWith(prisma: Record<string, unknown>, audit = { record: vi.fn
       {} as never,
       {} as never,
       audit as never,
+      registry as never,
     ),
     audit,
   };

@@ -1,0 +1,60 @@
+# Render deployment configuration for Vertex Legacy
+# Deploy with: render deploy --config render.yaml
+# Or connect GitHub repo at render.com and it will auto-detect
+
+services:
+  # API Service (NestJS)
+  - type: web
+    name: vertex-legacy-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile.api
+    region: singapore
+    plan: free
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: AUTH_PROVIDER
+        value: mock
+      - key: PAYMENT_PROVIDER
+        value: paymongo
+      - key: PAYOUT_PROVIDER
+        value: xendit
+      - key: KYC_PROVIDER
+        value: licensed
+      - key: API_PORT
+        value: "4000"
+      - key: WEB_ORIGIN
+        value: https://vertex-legacy-staging.onrender.com
+      - key: AUTH0_AUDIENCE
+        value: https://api.vertex-legacy.com
+      - key: PAYMONGO_SECRET_KEY
+        sync: false
+      - key: PAYMONGO_WEBHOOK_SECRET
+        sync: false
+      - key: XENDIT_SECRET_KEY
+        sync: false
+      - key: XENDIT_WEBHOOK_TOKEN
+        sync: false
+      - key: MOCK_PROVIDER_WEBHOOK_SECRET
+        sync: false
+      - key: MOCK_SESSION_SECRET
+        sync: false
+    healthCheckPath: /v1/health
+
+  # PostgreSQL Database
+  - type: pserv
+    name: vertex-legacy-db
+    runtime: postgresql
+    plan: free
+    region: singapore
+    ipAllowList: []  # Allow all for now, restrict in production
+
+  # Redis
+  - type: redis
+    name: vertex-legacy-redis
+    plan: free
+    region: singapore
+
+# Web Service (Next.js) - Deploy separately on Cloudflare Workers
+# See render-web.yaml for Cloudflare Pages alternative

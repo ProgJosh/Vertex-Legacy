@@ -1,0 +1,36 @@
+# Fly.io staging configuration for Vertex Legacy API
+# Deploy with: flyctl deploy --config fly.toml
+# Requires: flyctl auth login (or FLY_API_TOKEN)
+
+app = "vertex-legacy-api-staging"
+primary_region = "sin"
+kill_signal = "SIGTERM"
+kill_timeout = 30
+
+[build]
+  dockerfile = "Dockerfile.api"
+
+[env]
+  NODE_ENV = "development"
+  AUTH_PROVIDER = "mock"
+  PAYMENT_PROVIDER = "mock"
+  PAYOUT_PROVIDER = "mock"
+  KYC_PROVIDER = "mock"
+  API_PORT = "4000"
+  WEB_ORIGIN = "https://vertex-legacy-staging.joshua27emmanuel30.workers.dev"
+
+[http_service]
+  internal_port = 4000
+  force_https = true
+  auto_stop_machines = true
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ["app"]
+
+[[vm]]
+  memory = "512mb"
+  cpu_kind = "shared"
+  cpus = 1
+
+[mounts]
+  # No persistent mounts needed - database is external

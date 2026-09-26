@@ -124,3 +124,84 @@ failure. Before starting another API, check whether the configured port already 
 6. First Auth0 login provisions one local identity, investor role, profile, wallet, KYC case,
    and five ledger accounts idempotently.
 7. No response, build log, or repository file contains a client secret or session secret.
+
+## Staging environment (Fly.io + Cloudflare Workers)
+
+Staging uses **mock providers** so the sandbox works end-to-end without real credentials.
+
+### Fly.io API (staging)
+
+Create a Fly.io app and PostgreSQL/Redis:
+
+```bash
+flyctl apps create vertex-legacy-api-staging
+flyctl postgres create --name vertex-legacy-staging-db --region sin
+flyctl redis create --name vertex-legacy-staging-redis --region sin
+```
+
+Attach the database/redis to the app:
+
+```bash
+flyctl postgres attach vertex-legacy-staging-db --app vertex-legacy-api-staging
+flyctl redis attach vertex-legacy-staging-redis --app vertex-legacy-api-staging
+```
+
+Set staging environment variables (via `flyctl secrets set` or web UI):
+
+| Variable | Value |
+| --- | --- |
+| `DATABASE_URL` | (from `flyctl postgres attach` output) |
+| `REDIS_URL` | (from `flyctl redis attach` output) |
+| `NODE_ENV` | `development` |
+| `AUTH_PROVIDER` | `mock` |
+| `PAYMENT_PROVIDER` | `mock` |
+| `PAYOUT_PROVIDER` | `mock` |
+| `KYC_PROVIDER` | `mock` |
+| `WEB_ORIGIN` | `https://vertex-legacy-staging.joshua27emmanuel30.workers.dev` |
+| `MOCK_PROVIDER_WEBHOOK_SECRET` | random 32+ char string |
+| `MOCK_SESSION_SECRET` | random 32+ char string |
+
+Deploy using the staging Fly config:
+
+```bash
+flyctl deploy --config fly.toml
+```
+
+Verify:
+
+```bash
+curl.exe --silent --show-error --include https://vertex-legacy-api-staging.fly.dev/v1/health
+```
+
+Expected: HTTP 200 with `status: "ok"` and `moneyMovement: "sandbox"`.
+
+### Cloudflare Web (staging)
+
+Create a new Cloudflare Worker for staging (or use a staging subdomain):
+
+1. In Cloudflare dashboard: Workers & Pages → Create application → Worker
+2. Name: `vertex-legacy-staging`
+3. Build command: `corepack pnpm --filter @vertex/web run deploy` (runs Linux OpenNext build)
+4. Environment variables (non-secret, in Worker settings):
+   - `AUTH_PROVIDER` = `mock`
+   - `AUTH0_AUDIENCE` = `https://api.vertex-legacy.com`
+   - `INTERNAL_API_URL` = `https://vertex-legacy-api-staging.fly.dev/v1`
+   - `NEXT_PUBLIC_API_URL` = `https://vertex-legacy-api-staging.fly.dev/v1`
+   - `WEB_ORIGIN` = `https://vertex-legacy-staging.joshua27emmanuel30.workers.dev`
+5. Secrets (encrypted in Worker settings):
+   - `APP_BASE_URL` = `https://vertex-legacy-staging.joshua27emmanuel30.workers.dev`
+   - `AUTH0_DOMAIN` = (can use same Auth0 tenant or mock)
+   - `AUTH0_CLIENT_ID` = (if using Auth0)
+   - `AUTH0_CLIENT_SECRET` = (if using Auth0)
+   - `AUTH0_SECRET` = random 32+ char string
+
+The staging web app will use `AUTH_PROVIDER=mock` which enables local demo accounts without Auth0.
+
+### Staging acceptance
+
+1. API health: `moneyMovement: "sandbox"`
+2. `/plans` shows VIP 1–10 with daily payout/total return from API
+3. `/login` shows "Local demo accounts" notice (mock auth)
+4. Deposit → `/investor/cash-in` works with mock checkout
+5. Withdrawal → mock payout completes in sandbox
+6. No real payment credentials anywhere
