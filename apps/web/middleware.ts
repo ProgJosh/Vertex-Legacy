@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
+import { auth0 } from "./lib/auth0";
 
-export function middleware(request: NextRequest) {
+function withCsp(response: NextResponse, csp: string) {
+  response.headers.set("Content-Security-Policy", csp);
+  return response;
+}
+
+export async function middleware(request: NextRequest) {
   const nonce = Buffer.from(crypto.randomUUID()).toString("base64");
   const development = process.env.NODE_ENV !== "production";
   const csp = [
@@ -19,19 +25,41 @@ export function middleware(request: NextRequest) {
   const headers = new Headers(request.headers);
   headers.set("x-nonce", nonce);
   headers.set("Content-Security-Policy", csp);
+  const forwardedRequest = new NextRequest(request, { headers });
 
   const protectedPath =
     request.nextUrl.pathname.startsWith("/investor") ||
     request.nextUrl.pathname.startsWith("/admin");
+
+  const useAuth0 = process.env.AUTH_PROVIDER === "auth0" || process.env.NODE_ENV === "production";
+  if (useAuth0) {
+    const authResponse = await auth0.middleware(forwardedRequest);
+    if (protectedPath) {
+      const session = await auth0.getSession(forwardedRequest);
+      if (!session) {
+        const login = new URL("/auth/login", request.url);
+        login.searchParams.set("returnTo", request.nextUrl.pathname + request.nextUrl.search);
+        return withCsp(NextResponse.redirect(login), csp);
+      }
+      try {
+        await auth0.getAccessToken(forwardedRequest, authResponse);
+      } catch {
+        const login = new URL("/auth/login", request.url);
+        login.searchParams.set("returnTo", request.nextUrl.pathname + request.nextUrl.search);
+        return withCsp(NextResponse.redirect(login), csp);
+      }
+    }
+    return withCsp(authResponse, csp);
+  }
+
   if (protectedPath && !request.cookies.get("vertex_demo_user")) {
     const login = new URL("/login", request.url);
     login.searchParams.set("returnTo", request.nextUrl.pathname);
-    return NextResponse.redirect(login, { headers: { "Content-Security-Policy": csp } });
+    return withCsp(NextResponse.redirect(login), csp);
   }
 
   const response = NextResponse.next({ request: { headers } });
-  response.headers.set("Content-Security-Policy", csp);
-  return response;
+  return withCsp(response, csp);
 }
 
 export const config = {

@@ -18,7 +18,10 @@ import { z } from "zod";
 import { Permissions, Roles } from "@vertex/types";
 import { Public } from "./common/public.decorator";
 import { RequirePermissions } from "./common/permissions.decorator";
-import { AuthenticatedUser, CurrentUser } from "./common/current-user.decorator";
+import {
+  AuthenticatedUser,
+  CurrentUser,
+} from "./common/current-user.decorator";
 import { PrismaService } from "./services/prisma.service";
 import { ConfigService } from "./services/config.service";
 import { FinancialService } from "./services/financial.service";
@@ -44,10 +47,13 @@ export class AppController {
   @Public()
   @Get("health")
   health() {
+    const sandboxMoneyMovement =
+      process.env.PAYMENT_PROVIDER === "mock" &&
+      process.env.NODE_ENV !== "production";
     return {
       status: "ok",
       service: "vertex-legacy-api",
-      moneyMovement: process.env.PAYMENT_PROVIDER === "mock" ? "sandbox" : "provider-configured",
+      moneyMovement: sandboxMoneyMovement ? "sandbox" : "disabled",
     };
   }
 
@@ -85,7 +91,8 @@ export class AppController {
       where: { slug },
       include: { documents: true },
     });
-    if (!plan || plan.status !== "ACTIVE") throw new NotFoundException("Plan not found.");
+    if (!plan || plan.status !== "ACTIVE")
+      throw new NotFoundException("Plan not found.");
     return plan;
   }
 
@@ -110,7 +117,10 @@ export class AppController {
   @Public()
   @Post("auth/mock/login")
   async login(@Body() body: unknown) {
-    if ((process.env.AUTH_PROVIDER ?? "mock") !== "mock" || process.env.NODE_ENV === "production") {
+    if (
+      (process.env.AUTH_PROVIDER ?? "mock") !== "mock" ||
+      process.env.NODE_ENV === "production"
+    ) {
       throw new NotFoundException();
     }
     const input = z.object({ email: z.string().email() }).parse(body);
@@ -118,14 +128,23 @@ export class AppController {
       where: { email: input.email.toLowerCase() },
       include: { profile: true, roles: { include: { role: true } } },
     });
-    if (!user || user.status !== "ACTIVE") throw new NotFoundException("Demonstration account not found.");
+    if (!user || user.status !== "ACTIVE")
+      throw new NotFoundException("Demonstration account not found.");
     return {
       userId: user.id,
       email: user.email,
-      name: user.profile ? user.profile.firstName + " " + user.profile.lastName : user.email,
+      name: user.profile
+        ? user.profile.firstName + " " + user.profile.lastName
+        : user.email,
       roles: user.roles.map((item) => item.role.name),
       mode: "local-demonstration-only",
     };
+  }
+
+  @RequirePermissions(Permissions.USER_READ_SELF)
+  @Post("auth/provision")
+  provision(@CurrentUser() current: AuthenticatedUser) {
+    return { provisioned: true, userId: current.id };
   }
 
   @RequirePermissions(Permissions.USER_READ_SELF)
@@ -139,14 +158,20 @@ export class AppController {
         roles: { include: { role: true } },
         kycCases: { orderBy: { createdAt: "desc" }, take: 1 },
         payoutAccounts: { where: { active: true } },
-        sessions: { where: { revokedAt: null }, orderBy: { lastSeenAt: "desc" } },
+        sessions: {
+          where: { revokedAt: null },
+          orderBy: { lastSeenAt: "desc" },
+        },
       },
     });
   }
 
   @RequirePermissions(Permissions.USER_READ_SELF)
   @Patch("me/profile")
-  async updateProfile(@CurrentUser() current: AuthenticatedUser, @Body() body: unknown) {
+  async updateProfile(
+    @CurrentUser() current: AuthenticatedUser,
+    @Body() body: unknown,
+  ) {
     const input = z
       .object({
         firstName: z.string().min(1).max(80),
@@ -161,7 +186,9 @@ export class AppController {
       data: {
         firstName: input.firstName,
         lastName: input.lastName,
-        ...(input.nationality !== undefined ? { nationality: input.nationality } : {}),
+        ...(input.nationality !== undefined
+          ? { nationality: input.nationality }
+          : {}),
         ...(input.city !== undefined ? { city: input.city } : {}),
         ...(input.region !== undefined ? { region: input.region } : {}),
       },
@@ -170,21 +197,31 @@ export class AppController {
 
   @RequirePermissions(Permissions.USER_READ_SELF)
   @Post("me/kyc/mock/complete")
-  completeKyc(@CurrentUser() current: AuthenticatedUser, @Body() body: unknown) {
+  completeKyc(
+    @CurrentUser() current: AuthenticatedUser,
+    @Body() body: unknown,
+  ) {
     return this.users.completeMockKyc(current.id, body);
   }
 
   @RequirePermissions(Permissions.USER_READ_SELF)
   @Post("me/security/mfa/mock-enable")
   async enableMfa(@CurrentUser() current: AuthenticatedUser) {
-    if ((process.env.AUTH_PROVIDER ?? "mock") !== "mock") throw new NotFoundException();
-    await this.prisma.user.update({ where: { id: current.id }, data: { mfaEnabledAt: new Date() } });
+    if ((process.env.AUTH_PROVIDER ?? "mock") !== "mock")
+      throw new NotFoundException();
+    await this.prisma.user.update({
+      where: { id: current.id },
+      data: { mfaEnabledAt: new Date() },
+    });
     return { enabled: true, note: "Local demonstration MFA code: 123456" };
   }
 
   @RequirePermissions(Permissions.USER_READ_SELF)
   @Post("me/payout-accounts")
-  async createPayoutAccount(@CurrentUser() current: AuthenticatedUser, @Body() body: unknown) {
+  async createPayoutAccount(
+    @CurrentUser() current: AuthenticatedUser,
+    @Body() body: unknown,
+  ) {
     const input = z
       .object({
         institutionName: z.string().min(2).max(120),
@@ -209,28 +246,35 @@ export class AppController {
   @RequirePermissions(Permissions.WALLET_READ_SELF)
   @Get("me/wallet")
   wallet(@CurrentUser() current: AuthenticatedUser) {
-    return this.prisma.wallet.findUniqueOrThrow({ where: { userId: current.id } });
+    return this.prisma.wallet.findUniqueOrThrow({
+      where: { userId: current.id },
+    });
   }
 
   @RequirePermissions(Permissions.WALLET_READ_SELF)
   @Get("me/transactions")
   async transactions(@CurrentUser() current: AuthenticatedUser) {
-    const [deposits, withdrawals, investments, commissions] = await Promise.all([
-      this.prisma.deposit.findMany({ where: { userId: current.id }, orderBy: { createdAt: "desc" } }),
-      this.prisma.withdrawal.findMany({
-        where: { userId: current.id },
-        orderBy: { createdAt: "desc" },
-      }),
-      this.prisma.investmentOrder.findMany({
-        where: { userId: current.id },
-        include: { plan: true },
-        orderBy: { createdAt: "desc" },
-      }),
-      this.prisma.commissionEvent.findMany({
-        where: { beneficiaryUserId: current.id },
-        orderBy: { createdAt: "desc" },
-      }),
-    ]);
+    const [deposits, withdrawals, investments, commissions] = await Promise.all(
+      [
+        this.prisma.deposit.findMany({
+          where: { userId: current.id },
+          orderBy: { createdAt: "desc" },
+        }),
+        this.prisma.withdrawal.findMany({
+          where: { userId: current.id },
+          orderBy: { createdAt: "desc" },
+        }),
+        this.prisma.investmentOrder.findMany({
+          where: { userId: current.id },
+          include: { plan: true },
+          orderBy: { createdAt: "desc" },
+        }),
+        this.prisma.commissionEvent.findMany({
+          where: { beneficiaryUserId: current.id },
+          orderBy: { createdAt: "desc" },
+        }),
+      ],
+    );
     return [
       ...deposits.map((item) => ({
         id: item.id,
@@ -318,8 +362,13 @@ export class AppController {
 
   @RequirePermissions(Permissions.USER_READ_SELF)
   @Get("me/statements")
-  async statement(@CurrentUser() current: AuthenticatedUser, @Query("month") month?: string) {
-    const safeMonth = /^\d{4}-\d{2}$/.test(month ?? "") ? month! : new Date().toISOString().slice(0, 7);
+  async statement(
+    @CurrentUser() current: AuthenticatedUser,
+    @Query("month") month?: string,
+  ) {
+    const safeMonth = /^\d{4}-\d{2}$/.test(month ?? "")
+      ? month!
+      : new Date().toISOString().slice(0, 7);
     const [year, monthNumber] = safeMonth.split("-").map(Number);
     const from = new Date(Date.UTC(year!, monthNumber! - 1, 1));
     const to = new Date(Date.UTC(year!, monthNumber!, 1));
@@ -337,7 +386,8 @@ export class AppController {
       generatedAt: new Date(),
       fileName: "vertex-statement-" + safeMonth + ".json",
       entries,
-      disclosure: "Demonstration statement. Not proof of live funds or regulated custody.",
+      disclosure:
+        "Demonstration statement. Not proof of live funds or regulated custody.",
     };
   }
 
@@ -348,19 +398,28 @@ export class AppController {
     @Body() body: unknown,
     @Headers("idempotency-key") headerKey?: string,
   ) {
-    const payload = { ...(body as object), idempotencyKey: headerKey ?? (body as any)?.idempotencyKey };
+    const payload = {
+      ...(body as object),
+      idempotencyKey: headerKey ?? (body as any)?.idempotencyKey,
+    };
     return this.financial.createDeposit(current.id, payload);
   }
 
   @RequirePermissions(Permissions.DEPOSIT_CREATE_SELF)
   @Post("providers/mock/deposits/:id/complete")
-  completeDeposit(@CurrentUser() current: AuthenticatedUser, @Param("id") id: string) {
+  completeDeposit(
+    @CurrentUser() current: AuthenticatedUser,
+    @Param("id") id: string,
+  ) {
     return this.financial.completeMockDeposit(current.id, id);
   }
 
   @RequirePermissions(Permissions.WITHDRAWAL_CREATE_SELF)
   @Post("withdrawals/quote")
-  quoteWithdrawal(@CurrentUser() current: AuthenticatedUser, @Body() body: unknown) {
+  quoteWithdrawal(
+    @CurrentUser() current: AuthenticatedUser,
+    @Body() body: unknown,
+  ) {
     return this.financial.quoteWithdrawal(current.id, body);
   }
 
@@ -371,7 +430,10 @@ export class AppController {
     @Body() body: unknown,
     @Headers("idempotency-key") headerKey?: string,
   ) {
-    const payload = { ...(body as object), idempotencyKey: headerKey ?? (body as any)?.idempotencyKey };
+    const payload = {
+      ...(body as object),
+      idempotencyKey: headerKey ?? (body as any)?.idempotencyKey,
+    };
     return this.financial.createWithdrawal(current.id, payload);
   }
 
@@ -383,7 +445,10 @@ export class AppController {
     @Body() body: unknown,
     @Headers("idempotency-key") headerKey?: string,
   ) {
-    const payload = { ...(body as object), idempotencyKey: headerKey ?? (body as any)?.idempotencyKey };
+    const payload = {
+      ...(body as object),
+      idempotencyKey: headerKey ?? (body as any)?.idempotencyKey,
+    };
     return this.plans.subscribe(current.id, slug, payload);
   }
 
@@ -399,7 +464,10 @@ export class AppController {
 
   @RequirePermissions(Permissions.USER_READ_SELF)
   @Post("support/cases")
-  async createSupportCase(@CurrentUser() current: AuthenticatedUser, @Body() body: unknown) {
+  async createSupportCase(
+    @CurrentUser() current: AuthenticatedUser,
+    @Body() body: unknown,
+  ) {
     const input = z
       .object({
         subject: z.string().min(4).max(160),
@@ -445,10 +513,15 @@ export class AppController {
       })
       .parse(body);
     if (current.id === id && input.status !== "ACTIVE") {
-      throw new BadRequestException("Administrators cannot suspend or close their own account.");
+      throw new BadRequestException(
+        "Administrators cannot suspend or close their own account.",
+      );
     }
     const before = await this.prisma.user.findUniqueOrThrow({ where: { id } });
-    const updated = await this.prisma.user.update({ where: { id }, data: { status: input.status } });
+    const updated = await this.prisma.user.update({
+      where: { id },
+      data: { status: input.status },
+    });
     await this.audit.record({
       actorUserId: current.id,
       action: "USER_STATUS_UPDATE",
@@ -471,12 +544,18 @@ export class AppController {
   ) {
     const input = z
       .object({
-        roleName: z.enum([Roles.INVESTOR, Roles.FINANCE_COMPLIANCE, Roles.ADMIN]),
+        roleName: z.enum([
+          Roles.INVESTOR,
+          Roles.FINANCE_COMPLIANCE,
+          Roles.ADMIN,
+        ]),
         reason: z.string().min(8).max(500),
       })
       .parse(body);
     await this.prisma.user.findUniqueOrThrow({ where: { id } });
-    const role = await this.prisma.role.findUniqueOrThrow({ where: { name: input.roleName } });
+    const role = await this.prisma.role.findUniqueOrThrow({
+      where: { name: input.roleName },
+    });
     const assignment = await this.prisma.userRole.upsert({
       where: { userId_roleId: { userId: id, roleId: role.id } },
       create: { userId: id, roleId: role.id, assignedBy: current.id },
@@ -533,7 +612,9 @@ export class AppController {
     @Body() body: unknown,
   ) {
     const { reason } = reasonSchema.parse(body);
-    const before = await this.prisma.withdrawal.findUniqueOrThrow({ where: { id } });
+    const before = await this.prisma.withdrawal.findUniqueOrThrow({
+      where: { id },
+    });
     const updated = await this.prisma.withdrawal.update({
       where: { id },
       data: {
@@ -604,12 +685,17 @@ export class AppController {
   @RequirePermissions(Permissions.CONFIG_MANAGE)
   @Get("admin/config")
   adminConfig() {
-    return this.prisma.platformConfiguration.findMany({ orderBy: { version: "desc" } });
+    return this.prisma.platformConfiguration.findMany({
+      orderBy: { version: "desc" },
+    });
   }
 
   @RequirePermissions(Permissions.CONFIG_MANAGE)
   @Post("admin/config")
-  async updateConfig(@CurrentUser() current: AuthenticatedUser, @Body() body: unknown) {
+  async updateConfig(
+    @CurrentUser() current: AuthenticatedUser,
+    @Body() body: unknown,
+  ) {
     const currentConfig = await this.config.active();
     const input = z
       .object({
@@ -623,7 +709,10 @@ export class AppController {
       })
       .parse(body);
     const next = await this.prisma.$transaction(async (tx) => {
-      await tx.platformConfiguration.updateMany({ where: { active: true }, data: { active: false } });
+      await tx.platformConfiguration.updateMany({
+        where: { active: true },
+        data: { active: false },
+      });
       return tx.platformConfiguration.create({
         data: {
           version: currentConfig.version + 1,
@@ -636,8 +725,10 @@ export class AppController {
           withdrawalTimezone: currentConfig.withdrawalTimezone,
           withdrawalOutsideWindowMode: input.withdrawalOutsideWindowMode,
           defaultCurrency: currentConfig.defaultCurrency,
-          promotionalCreditsWithdrawable: currentConfig.promotionalCreditsWithdrawable,
-          manualReviewThresholdCentavos: currentConfig.manualReviewThresholdCentavos,
+          promotionalCreditsWithdrawable:
+            currentConfig.promotionalCreditsWithdrawable,
+          manualReviewThresholdCentavos:
+            currentConfig.manualReviewThresholdCentavos,
           active: true,
           effectiveAt: new Date(),
           changeReason: input.reason,
@@ -661,7 +752,11 @@ export class AppController {
   ledgerExplorer(@Query("reference") reference?: string) {
     return this.prisma.ledgerTransaction.findMany({
       ...(reference
-        ? { where: { reference: { contains: reference, mode: "insensitive" as const } } }
+        ? {
+            where: {
+              reference: { contains: reference, mode: "insensitive" as const },
+            },
+          }
         : {}),
       include: { entries: { include: { account: true } } },
       orderBy: { effectiveAt: "desc" },
@@ -700,7 +795,10 @@ export class AppController {
 
   @RequirePermissions(Permissions.PLAN_MANAGE)
   @Post("admin/plans")
-  async createPlan(@CurrentUser() current: AuthenticatedUser, @Body() body: unknown) {
+  async createPlan(
+    @CurrentUser() current: AuthenticatedUser,
+    @Body() body: unknown,
+  ) {
     const input = z
       .object({
         slug: z.string().regex(/^[a-z0-9-]+$/),
@@ -712,8 +810,14 @@ export class AppController {
         durationDays: z.coerce.number().int().positive().max(3_650),
         riskClassification: z.string().min(2).max(80),
         managementFeeRate: z.string().regex(/^0\.\d{1,6}$/),
-        targetPerformanceLow: z.string().regex(/^0\.\d{1,6}$/).nullable(),
-        targetPerformanceHigh: z.string().regex(/^0\.\d{1,6}$/).nullable(),
+        targetPerformanceLow: z
+          .string()
+          .regex(/^0\.\d{1,6}$/)
+          .nullable(),
+        targetPerformanceHigh: z
+          .string()
+          .regex(/^0\.\d{1,6}$/)
+          .nullable(),
         terms: z.string().min(20).max(10_000),
         status: z.enum(["DRAFT", "ACTIVE", "PAUSED", "CLOSED"]),
         reason: z.string().min(8).max(500),
@@ -724,7 +828,9 @@ export class AppController {
       data: {
         ...values,
         minimumCentavos: BigInt(values.minimumCentavos),
-        maximumCentavos: values.maximumCentavos ? BigInt(values.maximumCentavos) : null,
+        maximumCentavos: values.maximumCentavos
+          ? BigInt(values.maximumCentavos)
+          : null,
         managementFeeRate: new Prisma.Decimal(values.managementFeeRate),
         targetPerformanceLow: values.targetPerformanceLow
           ? new Prisma.Decimal(values.targetPerformanceLow)
@@ -761,7 +867,10 @@ export class AppController {
       })
       .parse(body);
     const before = await this.prisma.plan.findUniqueOrThrow({ where: { id } });
-    const updated = await this.prisma.plan.update({ where: { id }, data: { status: input.status } });
+    const updated = await this.prisma.plan.update({
+      where: { id },
+      data: { status: input.status },
+    });
     await this.audit.record({
       actorUserId: current.id,
       action: "PLAN_STATUS_UPDATE",
@@ -778,7 +887,9 @@ export class AppController {
   @RequirePermissions(Permissions.CONFIG_MANAGE)
   @Get("admin/commission-rules")
   commissionRules() {
-    return this.prisma.commissionRule.findMany({ orderBy: { effectiveFrom: "desc" } });
+    return this.prisma.commissionRule.findMany({
+      orderBy: { effectiveFrom: "desc" },
+    });
   }
 
   @RequirePermissions(Permissions.CONFIG_MANAGE)
@@ -840,7 +951,9 @@ export class AppController {
   @RequirePermissions(Permissions.CONFIG_MANAGE)
   @Get("admin/announcements")
   adminAnnouncements() {
-    return this.prisma.announcement.findMany({ orderBy: { createdAt: "desc" } });
+    return this.prisma.announcement.findMany({
+      orderBy: { createdAt: "desc" },
+    });
   }
 
   @RequirePermissions(Permissions.CONFIG_MANAGE)
@@ -954,8 +1067,17 @@ export class AppController {
         _sum: { requestedCentavos: true, feeCentavos: true },
       }),
       this.prisma.plan.count({ where: { status: "ACTIVE" } }),
-      this.prisma.kycCase.count({ where: { status: { in: ["PENDING", "IN_REVIEW"] } } }),
+      this.prisma.kycCase.count({
+        where: { status: { in: ["PENDING", "IN_REVIEW"] } },
+      }),
     ]);
-    return { users, deposits, withdrawals, plans, openKyc, generatedAt: new Date() };
+    return {
+      users,
+      deposits,
+      withdrawals,
+      plans,
+      openKyc,
+      generatedAt: new Date(),
+    };
   }
 }

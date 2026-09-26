@@ -71,10 +71,12 @@ const adminNav: NavItem[] = [
 export function AppShell({
   mode,
   user,
+  logoutHref,
   children,
 }: {
   mode: "investor" | "admin";
   user: { name: string; email: string };
+  logoutHref?: string | undefined;
   children: React.ReactNode;
 }) {
   const path = usePathname();
@@ -137,9 +139,15 @@ export function AppShell({
             <Menu size={18} />
           </button>
           <span className="environment-label">Sandbox environment · no live money movement</span>
-          <Button variant="secondary" size="small" onClick={signOut}>
-            Sign out
-          </Button>
+          {logoutHref ? (
+            <Button asChild variant="secondary" size="small">
+              <a href={logoutHref}>Sign out</a>
+            </Button>
+          ) : (
+            <Button variant="secondary" size="small" onClick={signOut}>
+              Sign out
+            </Button>
+          )}
         </header>
         <main className="app-content">{children}</main>
       </div>

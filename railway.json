@@ -1,0 +1,28 @@
+{
+  "$schema": "https://railway.com/railway.schema.json",
+  "build": {
+    "builder": "DOCKERFILE",
+    "dockerfilePath": "Dockerfile.api",
+    "watchPatterns": [
+      "/apps/api/**",
+      "/packages/config/**",
+      "/packages/database/**",
+      "/packages/types/**",
+      "/Dockerfile.api",
+      "/package.json",
+      "/pnpm-lock.yaml",
+      "/pnpm-workspace.yaml"
+    ]
+  },
+  "deploy": {
+    "healthcheckPath": "/v1/health",
+    "healthcheckTimeout": 300,
+    "restartPolicyType": "ON_FAILURE",
+    "restartPolicyMaxRetries": 10,
+    "multiRegionConfig": {
+      "asia-southeast1-eqsg3a": {
+        "numReplicas": 1
+      }
+    }
+  }
+}

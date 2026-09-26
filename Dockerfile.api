@@ -11,9 +11,11 @@ ENV NODE_ENV=production
 WORKDIR /app
 RUN addgroup --system vertex && adduser --system --ingroup vertex vertex
 COPY --from=build --chown=vertex:vertex /app/node_modules ./node_modules
+COPY --from=build --chown=vertex:vertex /app/apps/api/node_modules ./apps/api/node_modules
+COPY --from=build --chown=vertex:vertex /app/apps/api/package.json ./apps/api/package.json
 COPY --from=build --chown=vertex:vertex /app/apps/api/dist ./apps/api/dist
 COPY --from=build --chown=vertex:vertex /app/packages ./packages
 COPY --from=build --chown=vertex:vertex /app/package.json ./
 USER vertex
 EXPOSE 4000
-CMD ["node", "apps/api/dist/main.js"]
+CMD ["sh", "-c", "packages/database/node_modules/.bin/prisma migrate deploy --schema=packages/database/prisma/schema.prisma && packages/database/node_modules/.bin/tsx packages/database/prisma/seed.ts && exec apps/api/node_modules/.bin/tsx apps/api/dist/src/main.js"]

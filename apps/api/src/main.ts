@@ -21,7 +21,12 @@ async function bootstrap() {
   app.enableCors({
     origin: process.env.WEB_ORIGIN ?? "http://localhost:3000",
     credentials: true,
-    allowedHeaders: ["authorization", "content-type", "idempotency-key", "x-demo-user"],
+    allowedHeaders: [
+      "authorization",
+      "content-type",
+      "idempotency-key",
+      "x-demo-user",
+    ],
   });
   app.useGlobalPipes(
     new ValidationPipe({
@@ -33,13 +38,19 @@ async function bootstrap() {
 
   const openApi = new DocumentBuilder()
     .setTitle("Vertex Legacy API")
-    .setDescription("Sandbox-first investment platform API. Live money movement is disabled by default.")
+    .setDescription(
+      "Sandbox-first investment platform API. Live money movement is disabled by default.",
+    )
     .setVersion("1.0")
     .addBearerAuth()
     .build();
   SwaggerModule.setup("docs", app, SwaggerModule.createDocument(app, openApi));
 
-  await app.listen(Number(process.env.API_PORT ?? 4000), "0.0.0.0");
+  app.enableShutdownHooks();
+  await app.listen(
+    Number(process.env.PORT ?? process.env.API_PORT ?? 4000),
+    "0.0.0.0",
+  );
 }
 
 bootstrap();

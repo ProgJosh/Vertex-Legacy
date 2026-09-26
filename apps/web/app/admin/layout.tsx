@@ -20,6 +20,11 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   return (
     <AppShell
       mode="admin"
+      logoutHref={
+        process.env.AUTH_PROVIDER === "auth0" || process.env.NODE_ENV === "production"
+          ? "/auth/logout?returnTo=/"
+          : undefined
+      }
       user={{
         name: me.profile ? me.profile.firstName + " " + me.profile.lastName : me.email,
         email: me.email,

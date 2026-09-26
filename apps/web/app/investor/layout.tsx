@@ -17,6 +17,11 @@ export default async function InvestorLayout({ children }: { children: React.Rea
   return (
     <AppShell
       mode="investor"
+      logoutHref={
+        process.env.AUTH_PROVIDER === "auth0" || process.env.NODE_ENV === "production"
+          ? "/auth/logout?returnTo=/"
+          : undefined
+      }
       user={{
         name: me.profile ? me.profile.firstName + " " + me.profile.lastName : me.email,
         email: me.email,

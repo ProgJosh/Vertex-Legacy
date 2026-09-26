@@ -75,9 +75,60 @@ The reset removes local container volumes and cannot be undone.
 
 ## Production provider replacement
 
-Set AUTH_PROVIDER to auth0 or cognito and configure the matching issuer/audience values. Replace PAYMENT_PROVIDER, PAYOUT_PROVIDER, and KYC_PROVIDER with licensed adapters. Production startup rejects mock providers. Implement adapter-specific checkout, signed webhook verification, payout status handling, KYC case/document exchange, reconciliation exports, and secrets in AWS Secrets Manager.
+Set AUTH_PROVIDER to auth0 or cognito and configure the matching issuer/audience values. For
+the Auth0 deployment, set APP_BASE_URL and WEB_ORIGIN to
+`https://vertex-legacy.joshua27emmanuel30.workers.dev`, set AUTH0_AUDIENCE to
+`https://api.vertex-legacy.com`, and provide AUTH0_DOMAIN, AUTH0_CLIENT_ID,
+AUTH0_CLIENT_SECRET, and a 32-byte hex AUTH0_SECRET through the deployment secret store.
+The web application uses `/auth/callback`; Auth0 access tokens are forwarded only by the
+server-side Next.js layer. Never expose either secret as a public environment variable.
+
+On the first successful Auth0 callback, the web application calls the authenticated
+`POST /v1/auth/provision` endpoint. The API validates the RS256 access token, retrieves the
+signed-in Auth0 profile, and idempotently creates or links the local identity, investor role,
+profile, wallet, KYC case, and ledger accounts.
+
+Replace PAYMENT_PROVIDER, PAYOUT_PROVIDER, and KYC_PROVIDER with licensed adapters.
+Production startup rejects mock providers. Implement adapter-specific checkout, signed
+webhook verification, payout status handling, KYC case/document exchange, reconciliation
+exports, and secrets in AWS Secrets Manager.
 
 Never update the wallet from a browser return URL. Provider state changes must arrive through verified server-to-server events with immutable payload retention and idempotency.
+
+## Railway backend deployment
+
+The production API is deployed from the repository root using `Dockerfile.api` and
+`railway.json`. The Railway service runs in Singapore, listens on Railway's injected
+`PORT`, applies Prisma migrations during container startup, idempotently bootstraps roles
+and public demonstration data, and checks `/v1/health` before switching traffic.
+
+Provision one PostgreSQL service and one API service. Set the API variables through
+Railway's encrypted variable store:
+
+    DATABASE_URL=${{Postgres.DATABASE_URL}}
+    WEB_ORIGIN=https://vertex-legacy.joshua27emmanuel30.workers.dev
+    AUTH_PROVIDER=auth0
+    AUTH0_DOMAIN=dev-pxj0s10eaa2tbiuh.us.auth0.com
+    AUTH0_AUDIENCE=https://api.vertex-legacy.com
+    PAYMENT_PROVIDER=licensed
+    PAYOUT_PROVIDER=licensed
+    KYC_PROVIDER=licensed
+
+The `licensed` values keep all mock financial flows disabled; they do not enable live
+money movement. Add real provider adapters and credentials before enabling those
+features. The current BullMQ worker is intentionally not deployed because the API does
+not enqueue jobs yet. Add Redis and the worker when queue-backed processing is wired in.
+
+After Railway assigns the API domain, set both `INTERNAL_API_URL` and
+`NEXT_PUBLIC_API_URL` in the Cloudflare Workers environment to the Railway URL with the
+`/v1` suffix, then redeploy the web application. Store Auth0 secrets only in Cloudflare's
+encrypted secret store; never put them in repository files or public variables.
+
+Cloudflare builds must run in Linux because the Windows-generated OpenNext bundle can
+retain a dynamic Next.js middleware-manifest import that Workers cannot execute. With
+Docker Desktop running, `corepack pnpm --filter @vertex/web run deploy` builds the artifact
+inside `Dockerfile.cloudflare-build`, mounts `apps/web/.env.local` as a BuildKit secret,
+copies only the generated `.open-next` artifact back, and deploys it with Wrangler.
 
 ## Documentation
 

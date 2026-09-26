@@ -11,12 +11,14 @@ import { createRemoteJWKSet, jwtVerify } from "jose";
 import { Prisma } from "@prisma/client";
 import { IS_PUBLIC } from "./public.decorator";
 import { PrismaService } from "../services/prisma.service";
+import { UserService } from "../services/user.service";
 
 @Injectable()
 export class AuthGuard implements CanActivate {
   constructor(
     @Inject(Reflector) private readonly reflector: Reflector,
     @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(UserService) private readonly users: UserService,
   ) {}
 
   private findUser(where: Prisma.UserWhereInput) {
@@ -37,7 +39,8 @@ export class AuthGuard implements CanActivate {
       return true;
     }
     const request = context.switchToHttp().getRequest();
-    const provider = process.env.AUTH_PROVIDER ?? "mock";
+    const provider =
+      process.env.AUTH_PROVIDER ?? (process.env.NODE_ENV === "production" ? "auth0" : "mock");
     let user;
 
     if (provider === "mock") {
@@ -54,7 +57,10 @@ export class AuthGuard implements CanActivate {
       user = await this.findUser(isUuid ? { OR: [{ id: demoIdentity }, { email: demoIdentity }] } : { email: demoIdentity });
     } else {
       const authorization = request.headers.authorization;
-      const token = typeof authorization === "string" ? authorization.replace(/^Bearer\s+/i, "") : "";
+      const token =
+        typeof authorization === "string"
+          ? authorization.match(/^Bearer\s+(.+)$/i)?.[1] ?? ""
+          : "";
       if (!token) throw new UnauthorizedException("Missing bearer token.");
       const issuer =
         provider === "auth0"
@@ -71,14 +77,44 @@ export class AuthGuard implements CanActivate {
       const jwksUrl = issuer.endsWith("/")
         ? issuer + ".well-known/jwks.json"
         : issuer + "/.well-known/jwks.json";
-      const result = await jwtVerify(token, createRemoteJWKSet(new URL(jwksUrl)), {
-        issuer,
-        audience,
-      });
+      let result;
+      try {
+        result = await jwtVerify(token, createRemoteJWKSet(new URL(jwksUrl)), {
+          issuer,
+          audience,
+          algorithms: ["RS256"],
+        });
+      } catch {
+        throw new UnauthorizedException("The access token is invalid or expired.");
+      }
       if (!result.payload.sub) throw new UnauthorizedException("Token subject is missing.");
       user = await this.findUser({
         identities: { some: { provider, providerSubject: result.payload.sub } },
       });
+
+      if (!user && provider === "auth0") {
+        const profileResponse = await fetch(issuer + "userinfo", {
+          headers: { authorization: "Bearer " + token },
+        });
+        if (!profileResponse.ok) {
+          throw new UnauthorizedException("Unable to retrieve the authenticated profile.");
+        }
+        const profile = (await profileResponse.json()) as Record<string, unknown>;
+        if (profile.sub !== result.payload.sub || typeof profile.email !== "string") {
+          throw new UnauthorizedException("The authenticated profile is incomplete.");
+        }
+        await this.users.provisionAuth0User({
+          subject: result.payload.sub,
+          email: profile.email,
+          emailVerified: profile.email_verified === true,
+          givenName: typeof profile.given_name === "string" ? profile.given_name : undefined,
+          familyName: typeof profile.family_name === "string" ? profile.family_name : undefined,
+          name: typeof profile.name === "string" ? profile.name : undefined,
+        });
+        user = await this.findUser({
+          identities: { some: { provider: "auth0", providerSubject: result.payload.sub } },
+        });
+      }
     }
 
     if (!user || user.status !== "ACTIVE") throw new UnauthorizedException("Account is not active.");

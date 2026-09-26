@@ -1,0 +1,15 @@
+# syntax=docker/dockerfile:1
+FROM node:24-alpine AS build
+WORKDIR /app
+RUN corepack enable
+COPY . .
+RUN pnpm install --frozen-lockfile
+ENV APP_BASE_URL=https://vertex-legacy.joshua27emmanuel30.workers.dev
+ENV AUTH0_AUDIENCE=https://api.vertex-legacy.com
+ENV INTERNAL_API_URL=https://api-production-8c96.up.railway.app/v1
+ENV NEXT_PUBLIC_API_URL=https://api-production-8c96.up.railway.app/v1
+RUN --mount=type=secret,id=web_env,target=/app/apps/web/.env.local \
+    pnpm --filter @vertex/web exec opennextjs-cloudflare build
+
+FROM scratch AS artifact
+COPY --from=build /app/apps/web/.open-next /

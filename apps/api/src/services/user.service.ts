@@ -1,5 +1,5 @@
 import { ConflictException, Inject, Injectable } from "@nestjs/common";
-import { LedgerAccountType, NormalBalance, UserStatus } from "@prisma/client";
+import { LedgerAccountType, NormalBalance, Prisma, UserStatus } from "@prisma/client";
 import { createHmac } from "node:crypto";
 import { z } from "zod";
 import { Roles } from "@vertex/types";
@@ -19,6 +19,15 @@ const kycSchema = z.object({
   individualFingerprint: z.string().min(12).max(200),
 });
 
+const auth0ProfileSchema = z.object({
+  subject: z.string().min(1).max(255),
+  email: z.string().email(),
+  emailVerified: z.boolean(),
+  givenName: z.string().max(80).optional(),
+  familyName: z.string().max(80).optional(),
+  name: z.string().max(160).optional(),
+});
+
 @Injectable()
 export class UserService {
   constructor(
@@ -27,6 +36,129 @@ export class UserService {
     @Inject(ConfigService) private readonly config: ConfigService,
     @Inject(ProvidersService) private readonly providers: ProvidersService,
   ) {}
+
+  async provisionAuth0User(raw: unknown) {
+    const input = auth0ProfileSchema.parse(raw);
+    const email = input.email.trim().toLowerCase();
+    const existingIdentity = await this.prisma.identityProviderAccount.findUnique({
+      where: {
+        provider_providerSubject: {
+          provider: "auth0",
+          providerSubject: input.subject,
+        },
+      },
+    });
+    if (existingIdentity) {
+      await this.prisma.identityProviderAccount.update({
+        where: { id: existingIdentity.id },
+        data: { lastLoginAt: new Date() },
+      });
+      return existingIdentity.userId;
+    }
+
+    const displayName = input.name?.trim().split(/\s+/).filter(Boolean) ?? [];
+    const firstName = input.givenName?.trim() || displayName[0] || "Vertex";
+    const lastName =
+      input.familyName?.trim() || displayName.slice(1).join(" ") || "Member";
+    const role = await this.prisma.role.findUniqueOrThrow({ where: { name: Roles.INVESTOR } });
+
+    try {
+      return await this.prisma.$transaction(
+        async (tx) => {
+          const identity = await tx.identityProviderAccount.findUnique({
+            where: {
+              provider_providerSubject: {
+                provider: "auth0",
+                providerSubject: input.subject,
+              },
+            },
+          });
+          if (identity) return identity.userId;
+
+          const existingUser = await tx.user.findUnique({ where: { email } });
+          if (existingUser) {
+            if (!input.emailVerified) {
+              throw new ConflictException(
+                "Verify the email address with Auth0 before linking this account.",
+              );
+            }
+            await tx.identityProviderAccount.create({
+              data: {
+                userId: existingUser.id,
+                provider: "auth0",
+                providerSubject: input.subject,
+                lastLoginAt: new Date(),
+              },
+            });
+            await tx.user.update({
+              where: { id: existingUser.id },
+              data: {
+                emailVerifiedAt: existingUser.emailVerifiedAt ?? new Date(),
+                status:
+                  existingUser.status === UserStatus.PENDING_VERIFICATION
+                    ? UserStatus.ACTIVE
+                    : existingUser.status,
+              },
+            });
+            return existingUser.id;
+          }
+
+          const user = await tx.user.create({
+            data: {
+              email,
+              status: UserStatus.ACTIVE,
+              emailVerifiedAt: input.emailVerified ? new Date() : null,
+              profile: { create: { firstName, lastName } },
+              identities: {
+                create: {
+                  provider: "auth0",
+                  providerSubject: input.subject,
+                  lastLoginAt: new Date(),
+                },
+              },
+              wallet: { create: {} },
+              roles: { create: { roleId: role.id } },
+              kycCases: { create: { provider: "auth0", status: "NOT_STARTED" } },
+            },
+          });
+
+          const prefix = "USER:" + user.id;
+          for (const [suffix, accountName, type] of [
+            ["CASH", "Deposited cash", LedgerAccountType.USER_DEPOSITED_CASH],
+            ["PROMO", "Promotional credits", LedgerAccountType.USER_PROMOTIONAL_CREDIT],
+            ["INVESTED", "Invested funds", LedgerAccountType.USER_INVESTED_FUNDS],
+            ["COMMISSION", "Commissions", LedgerAccountType.USER_COMMISSION],
+            ["RESERVE", "Withdrawal reserve", LedgerAccountType.USER_WITHDRAWAL_RESERVE],
+          ] as const) {
+            await tx.ledgerAccount.create({
+              data: {
+                userId: user.id,
+                code: prefix + ":" + suffix,
+                name: accountName,
+                type,
+                normalBalance: NormalBalance.CREDIT,
+              },
+            });
+          }
+          return user.id;
+        },
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+      );
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+        const identity = await this.prisma.identityProviderAccount.findUnique({
+          where: {
+            provider_providerSubject: {
+              provider: "auth0",
+              providerSubject: input.subject,
+            },
+          },
+        });
+        if (identity) return identity.userId;
+      }
+      throw error;
+    }
+  }
 
   async registerMock(raw: unknown) {
     this.providers.assertSandbox("kyc");
