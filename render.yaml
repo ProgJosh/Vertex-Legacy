@@ -22,7 +22,7 @@ services:
       - key: AUTH_PROVIDER
         value: mock
       - key: PAYMENT_PROVIDER
-        value: paymongo
+        value: xendit
       - key: PAYOUT_PROVIDER
         value: xendit
       - key: KYC_PROVIDER
