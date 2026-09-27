@@ -3,6 +3,7 @@
 import { useMutation } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { formatPhp } from "@vertex/ui";
 import { Button } from "./ui/button";
 
 async function request(path: string, method: "POST" | "PATCH", body: object) {
@@ -55,6 +56,100 @@ export function ReasonedAction({
         {mutation.isPending ? "Applying…" : label}
       </Button>
       {mutation.error && <span className="field-error">{mutation.error.message}</span>}
+    </div>
+  );
+}
+
+type PayoutInstruction = {
+  withdrawalId: string;
+  channel: string;
+  accountHolderName: string;
+  accountIdentifier: string;
+  netCentavos: string;
+  currency: string;
+};
+
+export function ManualPayoutAction({ withdrawalId }: { withdrawalId: string }) {
+  const router = useRouter();
+  const [reason, setReason] = useState("");
+  const [transactionReference, setTransactionReference] = useState("");
+  const [note, setNote] = useState("");
+  const [instruction, setInstruction] = useState<PayoutInstruction | null>(null);
+  const reveal = useMutation({
+    mutationFn: () =>
+      request("admin/withdrawals/" + withdrawalId + "/payout-instruction", "POST", {
+        reason,
+      }) as Promise<PayoutInstruction>,
+    onSuccess: setInstruction,
+  });
+  const record = useMutation({
+    mutationFn: () =>
+      request("admin/withdrawals/" + withdrawalId + "/manual-transfer", "POST", {
+        reason,
+        transactionReference,
+        note: note || undefined,
+      }),
+    onSuccess: () => {
+      setInstruction(null);
+      setReason("");
+      setTransactionReference("");
+      setNote("");
+      router.refresh();
+    },
+  });
+  return (
+    <div style={{ display: "grid", gap: 8, minWidth: 260 }}>
+      <input
+        aria-label="Reason for accessing payout destination"
+        placeholder="Required operational reason"
+        value={reason}
+        onChange={(event) => setReason(event.target.value)}
+      />
+      {!instruction ? (
+        <Button
+          size="small"
+          variant="secondary"
+          disabled={reason.length < 8 || reveal.isPending}
+          onClick={() => reveal.mutate()}
+        >
+          {reveal.isPending ? "Loading…" : "Reveal payout instruction"}
+        </Button>
+      ) : (
+        <>
+          <div className="disclosure">
+            <strong>{instruction.channel}</strong><br />
+            {instruction.accountHolderName}<br />
+            <span className="sensitive-value">{instruction.accountIdentifier}</span><br />
+            Send exactly {formatPhp(instruction.netCentavos)}
+          </div>
+          <input
+            aria-label="Wallet transaction reference"
+            placeholder="GCash/Maya transaction reference"
+            value={transactionReference}
+            onChange={(event) => setTransactionReference(event.target.value)}
+          />
+          <input
+            aria-label="Optional payout note"
+            placeholder="Optional transfer note"
+            value={note}
+            onChange={(event) => setNote(event.target.value)}
+          />
+          <Button
+            size="small"
+            disabled={
+              reason.length < 8 ||
+              transactionReference.trim().length < 6 ||
+              record.isPending
+            }
+            onClick={() => record.mutate()}
+          >
+            {record.isPending ? "Recording…" : "Record transfer sent"}
+          </Button>
+        </>
+      )}
+      {(reveal.error || record.error) && (
+        <span className="field-error">{(reveal.error ?? record.error)?.message}</span>
+      )}
     </div>
   );
 }

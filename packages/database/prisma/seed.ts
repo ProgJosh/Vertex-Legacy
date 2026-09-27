@@ -29,6 +29,7 @@ const permissionsByRole: Record<string, string[]> = {
   [Roles.FINANCE_COMPLIANCE]: [
     Permissions.KYC_REVIEW,
     Permissions.DEPOSIT_REVIEW,
+    Permissions.PAYOUT_EXECUTE,
     Permissions.WITHDRAWAL_REVIEW,
     Permissions.RECONCILIATION_REVIEW,
     Permissions.AUDIT_READ,

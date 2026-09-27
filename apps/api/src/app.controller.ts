@@ -17,7 +17,12 @@ import {
 import { ApiBearerAuth, ApiTags } from "@nestjs/swagger";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
-import { Permissions, Roles } from "@vertex/types";
+import {
+  createPayoutAccountSchema,
+  Permissions,
+  Roles,
+  submitManualPayoutSchema,
+} from "@vertex/types";
 import { Public } from "./common/public.decorator";
 import { RequirePermissions } from "./common/permissions.decorator";
 import {
@@ -36,6 +41,7 @@ import { LedgerAccountType, MoneyRequestStatus } from "@prisma/client";
 import { parseCentavos } from "@vertex/types";
 import { randomUUID } from "node:crypto";
 import { manualPaymentChannels } from "@vertex/config";
+import { encryptPayoutIdentifier } from "./services/payout-account-crypto";
 
 const reasonSchema = z.object({ reason: z.string().min(8).max(500) });
 
@@ -70,6 +76,11 @@ export class AppController {
         : manualMoneyMovement
           ? "manual-review"
           : "disabled",
+      payoutMovement:
+        process.env.PAYOUT_PROVIDER === "manual" &&
+        process.env.MANUAL_PAYOUTS_ENABLED === "true"
+          ? "manual-review"
+          : "disabled",
     };
   }
 
@@ -91,6 +102,9 @@ export class AppController {
       manualPaymentsEnabled:
         process.env.PAYMENT_PROVIDER === "manual" &&
         process.env.MANUAL_PAYMENTS_ENABLED === "true",
+      manualPayoutsEnabled:
+        process.env.PAYOUT_PROVIDER === "manual" &&
+        process.env.MANUAL_PAYOUTS_ENABLED === "true",
     };
   }
 
@@ -280,23 +294,31 @@ export class AppController {
     @CurrentUser() current: AuthenticatedUser,
     @Body() body: unknown,
   ) {
-    const input = z
-      .object({
-        institutionName: z.string().min(2).max(120),
-        accountHolderName: z.string().min(2).max(160),
-        accountIdentifier: z.string().min(4).max(80),
-      })
-      .parse(body);
+    const input = createPayoutAccountSchema.parse(body);
+    const manual =
+      process.env.PAYOUT_PROVIDER === "manual" &&
+      process.env.MANUAL_PAYOUTS_ENABLED === "true";
+    const verifiedKyc = await this.prisma.kycCase.findFirst({
+      where: { userId: current.id, status: "VERIFIED" },
+      select: { id: true },
+    });
+    if (manual && !verifiedKyc) {
+      throw new BadRequestException(
+        "Identity verification must be complete before adding a payout wallet.",
+      );
+    }
     const suffix = input.accountIdentifier.slice(-4);
     return this.prisma.payoutAccount.create({
       data: {
         userId: current.id,
-        type: "BANK",
-        institutionName: input.institutionName,
+        type: "EWALLET",
+        institutionName: input.channel === "GCASH" ? "GCash" : "Maya",
         accountHolderName: input.accountHolderName,
-        encryptedIdentifier: "sandbox-token:" + crypto.randomUUID(),
+        encryptedIdentifier: manual
+          ? encryptPayoutIdentifier(input.accountIdentifier)
+          : "sandbox-token:" + crypto.randomUUID(),
         maskedIdentifier: "•••• " + suffix,
-        verifiedAt: process.env.KYC_PROVIDER === "mock" ? new Date() : null,
+        verifiedAt: manual || process.env.KYC_PROVIDER === "mock" ? new Date() : null,
       },
     });
   }
@@ -702,10 +724,109 @@ export class AppController {
   @Get("admin/withdrawals")
   adminWithdrawals() {
     return this.prisma.withdrawal.findMany({
-      include: { user: { include: { profile: true } }, payoutAccount: true },
+      include: {
+        user: { include: { profile: true } },
+        payoutAccount: {
+          select: {
+            id: true,
+            type: true,
+            institutionName: true,
+            accountHolderName: true,
+            maskedIdentifier: true,
+            verifiedAt: true,
+          },
+        },
+      },
       orderBy: { createdAt: "desc" },
       take: 200,
     });
+  }
+
+  @RequirePermissions(Permissions.PAYOUT_EXECUTE)
+  @Post("admin/withdrawals/:id/payout-instruction")
+  async payoutInstruction(
+    @CurrentUser() current: AuthenticatedUser,
+    @Param("id") id: string,
+    @Body() body: unknown,
+  ) {
+    const { reason } = reasonSchema.parse(body);
+    const instruction = await this.financial.getManualPayoutInstruction(id);
+    await this.audit.record({
+      actorUserId: current.id,
+      action: "MANUAL_PAYOUT_DESTINATION_REVEAL",
+      resourceType: "Withdrawal",
+      resourceId: id,
+      reason,
+      outcome: "SUCCESS",
+      after: {
+        channel: instruction.channel,
+        maskedDestination: instruction.accountIdentifier.slice(-4),
+      },
+    });
+    return instruction;
+  }
+
+  @RequirePermissions(Permissions.PAYOUT_EXECUTE)
+  @Post("admin/withdrawals/:id/manual-transfer")
+  async submitManualPayout(
+    @CurrentUser() current: AuthenticatedUser,
+    @Param("id") id: string,
+    @Body() body: unknown,
+  ) {
+    const input = submitManualPayoutSchema.parse(body);
+    const result = await this.financial.submitManualPayout(id, current.id, input);
+    await this.audit.record({
+      actorUserId: current.id,
+      action: "MANUAL_PAYOUT_TRANSFER_RECORDED",
+      resourceType: "Withdrawal",
+      resourceId: id,
+      reason: input.reason,
+      outcome: "SUCCESS",
+      after: { status: result.status },
+    });
+    return result;
+  }
+
+  @RequirePermissions(Permissions.WITHDRAWAL_REVIEW)
+  @Post("admin/withdrawals/:id/manual-settle")
+  async settleManualPayout(
+    @CurrentUser() current: AuthenticatedUser,
+    @Param("id") id: string,
+    @Body() body: unknown,
+  ) {
+    const { reason } = reasonSchema.parse(body);
+    const result = await this.financial.settleManualPayout(id, current.id, reason);
+    await this.audit.record({
+      actorUserId: current.id,
+      action: "MANUAL_PAYOUT_SETTLEMENT_CONFIRMED",
+      resourceType: "Withdrawal",
+      resourceId: id,
+      reason,
+      outcome: "SUCCESS",
+      after: { status: result.status, settlementTxnId: result.settlementTxnId },
+    });
+    return result;
+  }
+
+  @RequirePermissions(Permissions.WITHDRAWAL_REVIEW)
+  @Post("admin/withdrawals/:id/manual-fail")
+  async failManualPayout(
+    @CurrentUser() current: AuthenticatedUser,
+    @Param("id") id: string,
+    @Body() body: unknown,
+  ) {
+    const { reason } = reasonSchema.parse(body);
+    const result = await this.financial.failManualPayout(id, current.id, reason);
+    await this.audit.record({
+      actorUserId: current.id,
+      action: "MANUAL_PAYOUT_FAILURE_CONFIRMED",
+      resourceType: "Withdrawal",
+      resourceId: id,
+      reason,
+      outcome: "SUCCESS",
+      after: { status: result.status, reversalTxnId: result.reversalTxnId },
+    });
+    return result;
   }
 
   @RequirePermissions(Permissions.WITHDRAWAL_REVIEW)

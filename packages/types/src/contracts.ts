@@ -22,6 +22,25 @@ export const submitManualDepositSchema = z.object({
   senderMobileLast4: z.string().regex(/^\d{4}$/, "Enter the sender mobile number's last 4 digits."),
 });
 
+export const manualPayoutChannelSchema = z.enum(["GCASH", "MAYA"]);
+
+export const createPayoutAccountSchema = z.object({
+  channel: manualPayoutChannelSchema,
+  accountHolderName: z.string().trim().min(2).max(160),
+  accountIdentifier: z.string().regex(/^09\d{9}$/, "Enter an 11-digit Philippine mobile number."),
+});
+
+export const submitManualPayoutSchema = z.object({
+  transactionReference: z
+    .string()
+    .trim()
+    .min(6)
+    .max(100)
+    .regex(/^[A-Za-z0-9-]+$/, "Use only letters, numbers, and hyphens."),
+  note: z.string().trim().max(500).optional(),
+  reason: z.string().trim().min(8).max(500),
+});
+
 export const createWithdrawalSchema = z.object({
   amount: moneyInputSchema,
   payoutAccountId: z.string().uuid(),
@@ -36,5 +55,7 @@ export const withdrawalQuoteSchema = z.object({
 
 export type CreateDepositInput = z.infer<typeof createDepositSchema>;
 export type SubmitManualDepositInput = z.infer<typeof submitManualDepositSchema>;
+export type CreatePayoutAccountInput = z.infer<typeof createPayoutAccountSchema>;
+export type SubmitManualPayoutInput = z.infer<typeof submitManualPayoutSchema>;
 export type CreateWithdrawalInput = z.infer<typeof createWithdrawalSchema>;
 export type WithdrawalQuoteInput = z.infer<typeof withdrawalQuoteSchema>;

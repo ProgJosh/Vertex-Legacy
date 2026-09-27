@@ -96,14 +96,14 @@ export function EnableMfaButton() {
 export function PayoutAccountForm() {
   const router = useRouter();
   const [values, setValues] = useState({
-    institutionName: "",
+    channel: "GCASH",
     accountHolderName: "",
     accountIdentifier: "",
   });
   const mutation = useMutation({
     mutationFn: () => submit("me/payout-accounts", values),
     onSuccess: () => {
-      setValues({ institutionName: "", accountHolderName: "", accountIdentifier: "" });
+      setValues({ channel: "GCASH", accountHolderName: "", accountIdentifier: "" });
       router.refresh();
     },
   });
@@ -111,8 +111,11 @@ export function PayoutAccountForm() {
     <form onSubmit={(event) => { event.preventDefault(); mutation.mutate(); }}>
       <div className="form-grid">
         <div className="field">
-          <label htmlFor="institution">Institution</label>
-          <input id="institution" value={values.institutionName} onChange={(e) => setValues({ ...values, institutionName: e.target.value })} />
+          <label htmlFor="institution">Payout channel</label>
+          <select id="institution" value={values.channel} onChange={(e) => setValues({ ...values, channel: e.target.value })}>
+            <option value="GCASH">GCash</option>
+            <option value="MAYA">Maya</option>
+          </select>
         </div>
         <div className="field">
           <label htmlFor="holder">Account holder</label>
@@ -120,13 +123,13 @@ export function PayoutAccountForm() {
         </div>
       </div>
       <div className="field" style={{ marginTop: 16 }}>
-        <label htmlFor="identifier">Account number</label>
-        <input id="identifier" value={values.accountIdentifier} onChange={(e) => setValues({ ...values, accountIdentifier: e.target.value })} />
-        <span className="muted">Local sandbox stores only a token and masked suffix.</span>
+        <label htmlFor="identifier">GCash/Maya mobile number</label>
+        <input id="identifier" inputMode="numeric" maxLength={11} value={values.accountIdentifier} onChange={(e) => setValues({ ...values, accountIdentifier: e.target.value.replace(/\D/g, "").slice(0, 11) })} />
+        <span className="muted">The full number is encrypted. Most screens show only its last four digits.</span>
       </div>
       {mutation.error && <p className="error-banner">{mutation.error.message}</p>}
       <Button disabled={mutation.isPending || Object.values(values).some((value) => value.length < 2)}>
-        {mutation.isPending ? "Adding…" : "Add sandbox payout account"}
+        {mutation.isPending ? "Adding…" : "Add payout wallet"}
       </Button>
     </form>
   );

@@ -391,6 +391,11 @@ model Withdrawal {
   reviewedBy             String?            @db.Uuid
   reviewReason           String?
   rejectionReason        String?
+  payoutSubmittedBy      String?            @db.Uuid
+  payoutSubmittedAt      DateTime?
+  payoutConfirmedBy      String?            @db.Uuid
+  payoutConfirmedAt      DateTime?
+  payoutNote             String?
   completedAt            DateTime?
   createdAt              DateTime           @default(now())
   updatedAt              DateTime           @updatedAt

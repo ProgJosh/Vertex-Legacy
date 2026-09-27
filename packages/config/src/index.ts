@@ -7,13 +7,15 @@ export const environmentSchema = z
     REDIS_URL: z.string().default("redis://localhost:6379"),
     AUTH_PROVIDER: z.enum(["mock", "auth0", "cognito"]).default("mock"),
     PAYMENT_PROVIDER: z.enum(["mock", "manual", "licensed", "paymongo", "xendit"]).default("mock"),
-    PAYOUT_PROVIDER: z.enum(["mock", "licensed", "paymongo", "xendit"]).default("mock"),
+    PAYOUT_PROVIDER: z.enum(["mock", "manual", "licensed", "paymongo", "xendit"]).default("mock"),
     KYC_PROVIDER: z.enum(["mock", "licensed"]).default("mock"),
     WEB_ORIGIN: z.string().url().default("http://localhost:3000"),
     API_PORT: z.coerce.number().int().positive().default(4000),
     MANUAL_PAYMENTS_ENABLED: z.enum(["true", "false"]).default("false"),
+    MANUAL_PAYOUTS_ENABLED: z.enum(["true", "false"]).default("false"),
     GCASH_DESTINATION_NUMBER: z.string().regex(/^09\d{9}$/).optional(),
     MAYA_DESTINATION_NUMBER: z.string().regex(/^09\d{9}$/).optional(),
+    PAYOUT_ACCOUNT_ENCRYPTION_KEY: z.string().regex(/^[A-Fa-f0-9]{64}$/).optional(),
   })
   .superRefine((env, ctx) => {
     if (
@@ -31,6 +33,15 @@ export const environmentSchema = z
       }
       if (!env.MAYA_DESTINATION_NUMBER) {
         ctx.addIssue({ code: "custom", path: ["MAYA_DESTINATION_NUMBER"], message: "Required when manual payments are enabled." });
+      }
+    }
+    if (env.PAYOUT_PROVIDER === "manual" && env.MANUAL_PAYOUTS_ENABLED === "true") {
+      if (!env.PAYOUT_ACCOUNT_ENCRYPTION_KEY) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["PAYOUT_ACCOUNT_ENCRYPTION_KEY"],
+          message: "A 32-byte hexadecimal key is required when manual payouts are enabled.",
+        });
       }
     }
   });

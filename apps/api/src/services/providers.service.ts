@@ -57,6 +57,12 @@ export class ProvidersService {
   }
 
   assertPayoutAvailable(): void {
+    if (this.activePayoutProvider === "manual") {
+      if (process.env.MANUAL_PAYOUTS_ENABLED === "true") return;
+      throw new ServiceUnavailableException(
+        "Manual GCash and Maya payouts are not enabled.",
+      );
+    }
     if (this.activePayoutProvider === "mock") {
       throw new ServiceUnavailableException(
         "Payouts are not enabled. A licensed payout adapter must be configured before withdrawals can be requested.",

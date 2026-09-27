@@ -48,6 +48,7 @@ export const Permissions = {
   WALLET_READ_SELF: "wallet:read:self",
   DEPOSIT_CREATE_SELF: "deposit:create:self",
   DEPOSIT_REVIEW: "deposit:review",
+  PAYOUT_EXECUTE: "payout:execute",
   WITHDRAWAL_CREATE_SELF: "withdrawal:create:self",
   PLAN_SUBSCRIBE_SELF: "plan:subscribe:self",
   KYC_REVIEW: "kyc:review",

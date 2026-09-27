@@ -5,6 +5,7 @@ import {
   AnnouncementForm,
   CommissionRuleForm,
   ConfigForm,
+  ManualPayoutAction,
   PlanForm,
   ReasonedAction,
   ReconciliationForm,
@@ -81,8 +82,25 @@ export default async function AdminSection({ params }: { params: Promise<{ slug:
   }
 
   if (section === "withdrawals") {
-    const withdrawals = await optionalApiGet<Array<{ id: string; requestedCentavos: string; feeCentavos: string; netCentavos: string; status: string; reviewRequired: boolean; createdAt: string; user: { email: string; profile: { firstName: string; lastName: string } | null }; payoutAccount: { institutionName: string; maskedIdentifier: string } }>>("/admin/withdrawals", []);
-    return <><Heading eyebrow="Withdrawal review" title="Payout controls and exceptions." description="Approve, settle, reject, or reverse with a reason. Every action is audited." /><section className="panel">{withdrawals.length ? <div className="table-scroll"><table className="data-table"><thead><tr><th>User</th><th>Gross / fee / net</th><th>Destination</th><th>Status</th><th>Actions</th></tr></thead><tbody>{withdrawals.map((item) => <tr key={item.id}><td>{item.user.profile ? item.user.profile.firstName + " " + item.user.profile.lastName : item.user.email}<div className="muted">{new Date(item.createdAt).toLocaleString("en-PH")}</div></td><td>{formatPhp(item.requestedCentavos)}<div className="muted">Fee {formatPhp(item.feeCentavos)} · Net {formatPhp(item.netCentavos)}</div></td><td>{item.payoutAccount.institutionName} · {item.payoutAccount.maskedIdentifier}</td><td><Status value={item.status} /></td><td><div style={{ display: "grid", gap: 10 }}>{item.status === "AWAITING_REVIEW" && <ReasonedAction path={"admin/withdrawals/" + item.id + "/approve"} label="Approve for payout" />}{item.status === "PROCESSING" && <ReasonedAction path={"admin/withdrawals/" + item.id + "/mock-settle"} label="Settle sandbox payout" />}{!["COMPLETED", "REVERSED"].includes(item.status) && <ReasonedAction path={"admin/withdrawals/" + item.id + "/reverse"} label="Reverse and release" variant="danger" />}</div></td></tr>)}</tbody></table></div> : <div className="empty-state">No withdrawal requests are available.</div>}</section></>;
+    const withdrawals = await optionalApiGet<Array<{
+      id: string; requestedCentavos: string; feeCentavos: string; netCentavos: string;
+      status: string; provider: string; providerReference: string | null;
+      payoutSubmittedAt: string | null; payoutSubmittedBy: string | null;
+      createdAt: string;
+      user: { email: string; profile: { firstName: string; lastName: string } | null };
+      payoutAccount: { institutionName: string; accountHolderName: string; maskedIdentifier: string };
+    }>>("/admin/withdrawals", []);
+    return <><Heading eyebrow="Withdrawal review" title="Payout controls and exceptions." description="Finance reveals the approved destination, sends the exact net amount, and records the wallet reference. A different authorized reviewer must then confirm settlement or safely restore the reserved funds if the transfer failed. Every action is audited." /><section className="panel">{withdrawals.length ? <div className="table-scroll"><table className="data-table"><thead><tr><th>User</th><th>Gross / fee / net</th><th>Destination</th><th>Status</th><th>Controlled actions</th></tr></thead><tbody>{withdrawals.map((item) => {
+      const manual = item.provider === "manual";
+      const reference = item.providerReference?.replace(/^MANUAL-PAYOUT:/, "");
+      return <tr key={item.id}><td>{item.user.profile ? item.user.profile.firstName + " " + item.user.profile.lastName : item.user.email}<div className="muted">{new Date(item.createdAt).toLocaleString("en-PH")}</div></td><td>{formatPhp(item.requestedCentavos)}<div className="muted">Fee {formatPhp(item.feeCentavos)} · Net {formatPhp(item.netCentavos)}</div></td><td>{item.payoutAccount.institutionName} · {item.payoutAccount.maskedIdentifier}<div className="muted">{item.payoutAccount.accountHolderName}</div></td><td><Status value={item.status} />{reference && <div className="muted">Reference: {reference}</div>}{item.payoutSubmittedAt && <div className="muted">Sent {new Date(item.payoutSubmittedAt).toLocaleString("en-PH")}</div>}</td><td><div style={{ display: "grid", gap: 10 }}>
+        {item.status === "AWAITING_REVIEW" && <ReasonedAction path={"admin/withdrawals/" + item.id + "/approve"} label="Approve for payout" />}
+        {manual && item.status === "PROCESSING" && <ManualPayoutAction withdrawalId={item.id} />}
+        {!manual && item.status === "PROCESSING" && <ReasonedAction path={"admin/withdrawals/" + item.id + "/mock-settle"} label="Settle sandbox payout" />}
+        {manual && item.status === "AWAITING_PROVIDER" && <><ReasonedAction path={"admin/withdrawals/" + item.id + "/manual-settle"} label="Confirm transfer settled" /><ReasonedAction path={"admin/withdrawals/" + item.id + "/manual-fail"} label="Confirm failed and restore funds" variant="danger" /></>}
+        {manual && item.status === "PROCESSING" && <ReasonedAction path={"admin/withdrawals/" + item.id + "/reverse"} label="Cancel before transfer" variant="danger" />}
+      </div></td></tr>;
+    })}</tbody></table></div> : <div className="empty-state">No withdrawal requests are available.</div>}</section></>;
   }
 
   if (section === "plans") {

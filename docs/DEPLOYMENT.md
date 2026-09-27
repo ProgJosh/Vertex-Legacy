@@ -13,8 +13,9 @@ Railway service for the NestJS API and PostgreSQL database. The current producti
 Production keeps money movement fail-closed by default. `PAYMENT_PROVIDER=manual` selects the
 GCash/Maya review workflow, but destination details are not exposed and requests are rejected
 until `MANUAL_PAYMENTS_ENABLED=true`. Enable it only for approved business/merchant wallets after
-the required legal, compliance, reconciliation, and operational approvals. Payout and KYC remain
-`licensed` placeholders until their approved integrations are available.
+the required legal, compliance, reconciliation, and operational approvals. Manual payouts are
+separately fail-closed and require encrypted destinations plus two-person finance review. KYC
+remains a `licensed` placeholder until its approved integration is available.
 
 Never place Auth0 client/session secrets, provider credentials, database URLs, or webhook
 secrets in Git, `wrangler.jsonc`, Docker build arguments, logs, or `NEXT_PUBLIC_*`
@@ -52,7 +53,9 @@ through Railway's encrypted variable store:
 | `MANUAL_PAYMENTS_ENABLED` | `false` until approved business wallets and finance operations are ready |
 | `GCASH_DESTINATION_NUMBER` | approved GCash for Business destination; exposed to signed-in users when enabled |
 | `MAYA_DESTINATION_NUMBER` | approved Maya Business destination; exposed to signed-in users when enabled |
-| `PAYOUT_PROVIDER` | `licensed` until a real adapter is implemented |
+| `PAYOUT_PROVIDER` | `manual` for the reviewed GCash/Maya payout workflow |
+| `MANUAL_PAYOUTS_ENABLED` | `true` only after finance operations are approved |
+| `PAYOUT_ACCOUNT_ENCRYPTION_KEY` | 32-byte random value encoded as 64 hexadecimal characters |
 | `KYC_PROVIDER` | `licensed` until a real adapter is implemented |
 
 Railway injects `PORT`; do not hardcode a production port. Deploy the tested working tree:
@@ -88,6 +91,19 @@ Never approve from a screenshot alone. Match the receiving account, amount, refe
 and timestamp against the official business-wallet transaction history. Personal Maya accounts
 must not be used for business collection without Maya's written agreement; use GCash/Maya merchant
 accounts and retain settlement/reconciliation records.
+
+### Manual GCash/Maya payout controls
+
+1. A verified user registers a GCash or Maya destination; the full identifier is encrypted at rest.
+2. Withdrawal creation reserves the gross amount and enters review without posting a settlement.
+3. An authorized reviewer approves the withdrawal for payout.
+4. Finance reveals the destination through a permissioned, audited action and sends the exact net amount.
+5. Finance records the real wallet transaction reference; this does not finalize the ledger.
+6. A different authorized reviewer confirms settlement, which atomically posts the balanced ledger entries.
+7. If the transfer failed, that second reviewer instead confirms failure; the reservation is atomically
+   reversed and the user's funds are restored. A recorded transfer cannot use the generic reversal route.
+
+Never log or expose `PAYOUT_ACCOUNT_ENCRYPTION_KEY`, and never place it in the web application.
 
 ## Cloudflare web
 

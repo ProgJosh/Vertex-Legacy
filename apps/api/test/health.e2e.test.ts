@@ -46,6 +46,7 @@ describe("HTTP integration", () => {
       status: "ok",
       service: "vertex-legacy-api",
       moneyMovement: "sandbox",
+      payoutMovement: "disabled",
     });
   });
 

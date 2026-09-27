@@ -84,4 +84,17 @@ describe("manual payment safety", () => {
       GCASH_DESTINATION_NUMBER: "09171234567",
     })).toThrow("MAYA_DESTINATION_NUMBER");
   });
+
+  it("refuses to enable manual payouts without an encryption key", () => {
+    expect(() => loadEnvironment({
+      NODE_ENV: "production",
+      DATABASE_URL: "postgresql://example.invalid/vertex",
+      AUTH_PROVIDER: "auth0",
+      PAYMENT_PROVIDER: "licensed",
+      PAYOUT_PROVIDER: "manual",
+      KYC_PROVIDER: "licensed",
+      WEB_ORIGIN: "https://vertex.example",
+      MANUAL_PAYOUTS_ENABLED: "true",
+    })).toThrow("PAYOUT_ACCOUNT_ENCRYPTION_KEY");
+  });
 });

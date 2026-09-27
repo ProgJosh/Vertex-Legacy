@@ -7,7 +7,7 @@ import {
   NotFoundException,
   ServiceUnavailableException,
 } from "@nestjs/common";
-import { LedgerAccountType, MoneyRequestStatus } from "@prisma/client";
+import { LedgerAccountType, MoneyRequestStatus, Prisma } from "@prisma/client";
 import {
   allocateWithdrawal,
   assertApprovableWithdrawal,
@@ -19,6 +19,7 @@ import {
   getWithdrawalWindowStatus,
   parseCentavos,
   submitManualDepositSchema,
+  submitManualPayoutSchema,
   TransitionError,
   withdrawableBalance,
   withdrawalQuoteSchema,
@@ -28,6 +29,7 @@ import { PrismaService } from "./prisma.service";
 import { ConfigService } from "./config.service";
 import { LedgerService } from "./ledger.service";
 import { ProvidersService } from "./providers.service";
+import { decryptPayoutIdentifier } from "./payout-account-crypto";
 
 @Injectable()
 export class FinancialService {
@@ -468,8 +470,9 @@ export class FinancialService {
     };
   }
 
-async createWithdrawal(userId: string, raw: unknown) {
+  async createWithdrawal(userId: string, raw: unknown) {
     const input = createWithdrawalSchema.parse(raw);
+    const manualPayout = this.activePayoutProvider() === "manual";
     if ((process.env.AUTH_PROVIDER ?? "mock") === "mock" && input.mfaCode !== "123456") {
       throw new ForbiddenException("Invalid demonstration MFA code.");
     }
@@ -570,11 +573,21 @@ async createWithdrawal(userId: string, raw: unknown) {
           { accountId: reserve.id, direction: "CREDIT", amountCentavos: amount },
         ],
       });
-      const reviewRequired = amount >= config.manualReviewThresholdCentavos;
+      const reviewRequired =
+        manualPayout || amount >= config.manualReviewThresholdCentavos;
 
-      // Create payout with real provider if not mock
-      let providerResult = { provider: "mock", providerReference: "mock_payout_" + randomUUID(), status: "pending" as "pending" | "processing" | "completed" | "failed" };
-      if (this.activePayoutProvider() !== "mock") {
+      let providerResult: {
+        provider: string;
+        providerReference: string | null;
+        status: "pending" | "processing" | "completed" | "failed";
+      } = manualPayout
+        ? { provider: "manual", providerReference: null, status: "pending" }
+        : {
+            provider: "mock",
+            providerReference: "mock_payout_" + randomUUID(),
+            status: "pending",
+          };
+      if (!["mock", "manual"].includes(this.activePayoutProvider())) {
         providerResult = await this.providers.createPayout({
           withdrawalId: "", // Will be updated after creation
           amountCentavos: amount,
@@ -602,7 +615,7 @@ async createWithdrawal(userId: string, raw: unknown) {
           netCentavos: BigInt(quote.netCentavos),
           status: !quote.window.isOpen
             ? MoneyRequestStatus.SCHEDULED
-            : reviewRequired
+            : manualPayout || reviewRequired
               ? MoneyRequestStatus.AWAITING_REVIEW
               : MoneyRequestStatus.PROCESSING,
           idempotencyKey: input.idempotencyKey,
@@ -615,7 +628,7 @@ async createWithdrawal(userId: string, raw: unknown) {
       });
 
       // Update payout with actual withdrawal ID
-      if (this.activePayoutProvider() !== "mock" && providerResult.providerReference) {
+      if (!["mock", "manual"].includes(this.activePayoutProvider()) && providerResult.providerReference) {
         // Provider already has the withdrawal ID in metadata
       }
 
@@ -641,6 +654,233 @@ async createWithdrawal(userId: string, raw: unknown) {
         },
       });
       return this.serialize(withdrawal);
+    });
+  }
+
+  private assertManualPayoutEnabled() {
+    if (
+      this.activePayoutProvider() !== "manual" ||
+      process.env.MANUAL_PAYOUTS_ENABLED !== "true"
+    ) {
+      throw new ServiceUnavailableException("Manual GCash and Maya payouts are not enabled.");
+    }
+  }
+
+  async getManualPayoutInstruction(withdrawalId: string) {
+    this.assertManualPayoutEnabled();
+    const withdrawal = await this.prisma.withdrawal.findUniqueOrThrow({
+      where: { id: withdrawalId },
+      include: { payoutAccount: true },
+    });
+    if (
+      withdrawal.provider !== "manual" ||
+      withdrawal.status !== MoneyRequestStatus.PROCESSING
+    ) {
+      throw new ConflictException("Only approved manual payouts can reveal a payout instruction.");
+    }
+    if (!withdrawal.payoutAccount.verifiedAt) {
+      throw new ConflictException("The payout destination is not verified.");
+    }
+    let accountIdentifier: string;
+    try {
+      accountIdentifier = decryptPayoutIdentifier(
+        withdrawal.payoutAccount.encryptedIdentifier,
+      );
+    } catch {
+      throw new ConflictException(
+        "The payout destination must be re-entered using the secure GCash/Maya form.",
+      );
+    }
+    return {
+      withdrawalId: withdrawal.id,
+      channel: withdrawal.payoutAccount.institutionName,
+      accountHolderName: withdrawal.payoutAccount.accountHolderName,
+      accountIdentifier,
+      netCentavos: withdrawal.netCentavos.toString(),
+      currency: withdrawal.currency,
+    };
+  }
+
+  async submitManualPayout(withdrawalId: string, actorUserId: string, raw: unknown) {
+    this.assertManualPayoutEnabled();
+    const input = submitManualPayoutSchema.parse(raw);
+    const normalizedReference = input.transactionReference.trim().toUpperCase();
+    const providerReference = "MANUAL-PAYOUT:" + normalizedReference;
+
+    return this.prisma.$transaction(async (tx) => {
+      const withdrawal = await tx.withdrawal.findUniqueOrThrow({
+        where: { id: withdrawalId },
+      });
+      if (withdrawal.provider !== "manual") {
+        throw new ConflictException("This withdrawal is not a manual wallet payout.");
+      }
+      if (
+        withdrawal.status === MoneyRequestStatus.AWAITING_PROVIDER &&
+        withdrawal.providerReference === providerReference
+      ) {
+        return this.serialize(withdrawal);
+      }
+      if (withdrawal.status !== MoneyRequestStatus.PROCESSING) {
+        throw new ConflictException("Only an approved withdrawal can record a transfer.");
+      }
+      const duplicate = await tx.withdrawal.findFirst({
+        where: { providerReference, id: { not: withdrawal.id } },
+        select: { id: true },
+      });
+      if (duplicate) {
+        throw new ConflictException("That payout transaction reference was already used.");
+      }
+      const claimed = await tx.withdrawal.updateMany({
+        where: {
+          id: withdrawal.id,
+          status: MoneyRequestStatus.PROCESSING,
+          providerReference: null,
+        },
+        data: {
+          status: MoneyRequestStatus.AWAITING_PROVIDER,
+          providerReference,
+          payoutSubmittedBy: actorUserId,
+          payoutSubmittedAt: new Date(),
+          payoutNote: input.note ?? null,
+        },
+      });
+      if (claimed.count !== 1) {
+        throw new ConflictException("A payout transfer was already recorded.");
+      }
+      const submitted = await tx.withdrawal.findUniqueOrThrow({
+        where: { id: withdrawal.id },
+      });
+      await tx.notification.create({
+        data: {
+          userId: withdrawal.userId,
+          type: "WITHDRAWAL_TRANSFER_RECORDED",
+          title: "Withdrawal transfer sent",
+          body: "Finance recorded the wallet transfer. A second reviewer must confirm settlement.",
+          data: { withdrawalId: withdrawal.id },
+        },
+      });
+      return this.serialize(submitted);
+    });
+  }
+
+  async settleManualPayout(
+    withdrawalId: string,
+    confirmerUserId: string,
+    reason: string,
+  ) {
+    this.assertManualPayoutEnabled();
+    return this.prisma.$transaction(async (tx) => {
+      const withdrawal = await tx.withdrawal.findUniqueOrThrow({
+        where: { id: withdrawalId },
+      });
+      if (withdrawal.status === MoneyRequestStatus.COMPLETED) {
+        return this.serialize(withdrawal);
+      }
+      if (
+        withdrawal.provider !== "manual" ||
+        withdrawal.status !== MoneyRequestStatus.AWAITING_PROVIDER ||
+        !withdrawal.providerReference ||
+        !withdrawal.payoutSubmittedBy
+      ) {
+        throw new ConflictException(
+          "Only a recorded manual transfer awaiting confirmation can settle.",
+        );
+      }
+      if (withdrawal.payoutSubmittedBy === confirmerUserId) {
+        throw new ForbiddenException(
+          "The finance user who recorded the transfer cannot confirm its settlement.",
+        );
+      }
+      const claimed = await tx.withdrawal.updateMany({
+        where: {
+          id: withdrawal.id,
+          status: MoneyRequestStatus.AWAITING_PROVIDER,
+        },
+        data: { status: MoneyRequestStatus.PROCESSING },
+      });
+      if (claimed.count !== 1) {
+        throw new ConflictException("The payout is already being confirmed.");
+      }
+
+      const reserve = await tx.ledgerAccount.findFirstOrThrow({
+        where: {
+          userId: withdrawal.userId,
+          type: LedgerAccountType.USER_WITHDRAWAL_RESERVE,
+        },
+      });
+      const platformCash = await tx.ledgerAccount.findUniqueOrThrow({
+        where: { code: "PLATFORM:CASH" },
+      });
+      let feeRevenue = await tx.ledgerAccount.findUnique({
+        where: { code: "PLATFORM:FEE_REVENUE" },
+      });
+      if (!feeRevenue) {
+        feeRevenue = await tx.ledgerAccount.create({
+          data: {
+            code: "PLATFORM:FEE_REVENUE",
+            name: "Withdrawal fee revenue",
+            type: LedgerAccountType.PLATFORM_FEE_REVENUE,
+            normalBalance: "CREDIT",
+          },
+        });
+      }
+      const posted = await this.ledger.post(tx, {
+        reference: "WDR-SET-" + withdrawal.id.slice(0, 8).toUpperCase(),
+        idempotencyKey: "withdrawal:settle:" + withdrawal.id,
+        kind: "MANUAL_WITHDRAWAL_SETTLEMENT",
+        description: "Finance-confirmed GCash/Maya payout and withdrawal fee",
+        metadata: {
+          withdrawalId: withdrawal.id,
+          providerReference: withdrawal.providerReference,
+          payoutSubmittedBy: withdrawal.payoutSubmittedBy,
+          payoutConfirmedBy: confirmerUserId,
+          reason,
+        },
+        lines: [
+          {
+            accountId: reserve.id,
+            direction: "DEBIT",
+            amountCentavos: withdrawal.requestedCentavos,
+          },
+          {
+            accountId: platformCash.id,
+            direction: "CREDIT",
+            amountCentavos: withdrawal.netCentavos,
+          },
+          {
+            accountId: feeRevenue.id,
+            direction: "CREDIT",
+            amountCentavos: withdrawal.feeCentavos,
+          },
+        ],
+      });
+      const completed = await tx.withdrawal.update({
+        where: { id: withdrawal.id },
+        data: {
+          status: MoneyRequestStatus.COMPLETED,
+          settlementTxnId: posted.id,
+          payoutConfirmedBy: confirmerUserId,
+          payoutConfirmedAt: new Date(),
+          completedAt: new Date(),
+        },
+      });
+      await tx.wallet.update({
+        where: { userId: withdrawal.userId },
+        data: {
+          reservedCentavos: { decrement: withdrawal.requestedCentavos },
+          projectionVersion: { increment: 1 },
+        },
+      });
+      await tx.notification.create({
+        data: {
+          userId: withdrawal.userId,
+          type: "WITHDRAWAL_COMPLETED",
+          title: "Withdrawal completed",
+          body: "The GCash/Maya payout was independently confirmed.",
+          data: { withdrawalId: withdrawal.id },
+        },
+      });
+      return this.serialize(completed);
     });
   }
 
@@ -768,28 +1008,45 @@ async createWithdrawal(userId: string, raw: unknown) {
    * never leave SCHEDULED and could not be paid out.
    */
   async releaseDueScheduledWithdrawals(now = new Date()) {
-    return this.prisma.withdrawal.updateMany({
-      where: {
-        status: MoneyRequestStatus.SCHEDULED,
-        scheduledFor: { lte: now },
-      },
-      data: { status: MoneyRequestStatus.PROCESSING },
+    return this.prisma.$transaction(async (tx) => {
+      const reviewed = await tx.withdrawal.updateMany({
+        where: {
+          status: MoneyRequestStatus.SCHEDULED,
+          scheduledFor: { lte: now },
+          reviewRequired: true,
+        },
+        data: { status: MoneyRequestStatus.AWAITING_REVIEW },
+      });
+      const automatic = await tx.withdrawal.updateMany({
+        where: {
+          status: MoneyRequestStatus.SCHEDULED,
+          scheduledFor: { lte: now },
+          reviewRequired: false,
+        },
+        data: { status: MoneyRequestStatus.PROCESSING },
+      });
+      return { count: reviewed.count + automatic.count };
     });
   }
 
-  async reverseFailedWithdrawal(withdrawalId: string, reason: string) {
-    this.providers.assertSandbox("payout");
-    return this.prisma.$transaction(async (tx) => {
-      const withdrawal = await tx.withdrawal.findUniqueOrThrow({
-        where: { id: withdrawalId },
-        include: { reservationTransaction: true },
+  private async reverseWithdrawalReservation(
+    tx: Prisma.TransactionClient,
+    withdrawal: {
+      id: string;
+      userId: string;
+      requestedCentavos: bigint;
+      status: MoneyRequestStatus;
+      reservationTransaction: { metadata: Prisma.JsonValue } | null;
+    },
+    reason: string,
+  ) {
+      const claimed = await tx.withdrawal.updateMany({
+        where: { id: withdrawal.id, status: withdrawal.status },
+        data: { status: MoneyRequestStatus.FAILED },
       });
-      if (withdrawal.status === MoneyRequestStatus.REVERSED) return this.serialize(withdrawal);
-      // A settled or already-released request holds no reservation, so posting a
-      // reversal would debit the reserve account a second time and drive the
-      // wallet's reserved balance negative.
-      this.guardTransition(() => assertReversibleWithdrawal(withdrawal.status));
-
+      if (claimed.count !== 1) {
+        throw new ConflictException("The withdrawal is already being settled or reversed.");
+      }
       const metadata = (withdrawal.reservationTransaction?.metadata ?? {}) as Record<string, string>;
       const toDeposit = BigInt(metadata.sourceDepositCentavos ?? "0");
       const toCommission = BigInt(metadata.sourceCommissionCentavos ?? "0");
@@ -815,7 +1072,7 @@ async createWithdrawal(userId: string, raw: unknown) {
         idempotencyKey: "withdrawal:reverse:" + withdrawal.id,
         kind: "WITHDRAWAL_REVERSAL",
         description: "Release reserved funds after failed payout",
-        metadata: { withdrawalId, reason },
+        metadata: { withdrawalId: withdrawal.id, reason },
         lines: [
           {
             accountId: reserve.id,
@@ -846,7 +1103,7 @@ async createWithdrawal(userId: string, raw: unknown) {
         ],
       });
       const result = await tx.withdrawal.update({
-        where: { id: withdrawalId },
+        where: { id: withdrawal.id },
         data: {
           status: MoneyRequestStatus.REVERSED,
           rejectionReason: reason,
@@ -863,7 +1120,63 @@ async createWithdrawal(userId: string, raw: unknown) {
           projectionVersion: { increment: 1 },
         },
       });
+      await tx.notification.create({
+        data: {
+          userId: withdrawal.userId,
+          type: "WITHDRAWAL_REVERSED",
+          title: "Withdrawal returned to your balance",
+          body: "The payout failed verification and the reserved funds were restored.",
+          data: { withdrawalId: withdrawal.id, reason },
+        },
+      });
       return this.serialize(result);
+  }
+
+  async failManualPayout(
+    withdrawalId: string,
+    confirmerUserId: string,
+    reason: string,
+  ) {
+    this.assertManualPayoutEnabled();
+    return this.prisma.$transaction(async (tx) => {
+      const withdrawal = await tx.withdrawal.findUniqueOrThrow({
+        where: { id: withdrawalId },
+        include: { reservationTransaction: true },
+      });
+      if (
+        withdrawal.provider !== "manual" ||
+        withdrawal.status !== MoneyRequestStatus.AWAITING_PROVIDER ||
+        !withdrawal.providerReference ||
+        !withdrawal.payoutSubmittedBy
+      ) {
+        throw new ConflictException(
+          "Only a recorded manual transfer awaiting confirmation can be failed.",
+        );
+      }
+      if (withdrawal.payoutSubmittedBy === confirmerUserId) {
+        throw new ForbiddenException(
+          "The finance user who recorded the transfer cannot confirm its failure.",
+        );
+      }
+      return this.reverseWithdrawalReservation(tx, withdrawal, reason);
+    });
+  }
+
+  async reverseFailedWithdrawal(withdrawalId: string, reason: string) {
+    this.providers.assertSandbox("payout");
+    return this.prisma.$transaction(async (tx) => {
+      const withdrawal = await tx.withdrawal.findUniqueOrThrow({
+        where: { id: withdrawalId },
+        include: { reservationTransaction: true },
+      });
+      if (withdrawal.status === MoneyRequestStatus.REVERSED) return this.serialize(withdrawal);
+      this.guardTransition(() => assertReversibleWithdrawal(withdrawal.status));
+      if (withdrawal.provider === "manual" && withdrawal.providerReference) {
+        throw new ConflictException(
+          "A recorded manual transfer must use the confirm-failed action.",
+        );
+      }
+      return this.reverseWithdrawalReservation(tx, withdrawal, reason);
     });
   }
 
@@ -876,15 +1189,19 @@ async createWithdrawal(userId: string, raw: unknown) {
     return this.prisma.$transaction(async (tx) => {
       const withdrawal = await tx.withdrawal.findUniqueOrThrow({ where: { id: withdrawalId } });
       this.guardTransition(() => assertApprovableWithdrawal(withdrawal.status));
+      const claimed = await tx.withdrawal.updateMany({
+        where: { id: withdrawalId, status: MoneyRequestStatus.AWAITING_REVIEW },
+        data: {
+          status: MoneyRequestStatus.PROCESSING,
+          reviewedBy: reviewerId,
+          reviewReason: reason,
+        },
+      });
+      if (claimed.count !== 1) {
+        throw new ConflictException("The withdrawal is already being reviewed.");
+      }
       return this.serialize(
-        await tx.withdrawal.update({
-          where: { id: withdrawalId },
-          data: {
-            status: MoneyRequestStatus.PROCESSING,
-            reviewedBy: reviewerId,
-            reviewReason: reason,
-          },
-        }),
+        await tx.withdrawal.findUniqueOrThrow({ where: { id: withdrawalId } }),
       );
     });
   }
