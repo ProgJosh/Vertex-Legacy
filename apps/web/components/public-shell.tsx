@@ -20,7 +20,7 @@ export function PublicHeader() {
         </nav>
         <div className="header-actions">
           <Button asChild variant="secondary" size="small">
-            <Link href="/login">Sign in</Link>
+            <a href="/login">Sign in</a>
           </Button>
           <Button asChild size="small">
             <a href={signupHref}>Open account</a>

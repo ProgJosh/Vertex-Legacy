@@ -20,9 +20,16 @@ export default function LoginPage() {
             : "Local development uses isolated demonstration identities."}
         </p>
         {useAuth0 ? (
-          <Button asChild style={{ width: "100%" }}>
-            <a href="/auth/login">Sign in securely</a>
-          </Button>
+          <div style={{ display: "grid", gap: 12 }}>
+            <Button asChild style={{ width: "100%" }}>
+              <a href="/auth/login">Sign in to existing account</a>
+            </Button>
+            <Button asChild variant="secondary" style={{ width: "100%" }}>
+              <a href="/auth/login?screen_hint=signup&returnTo=%2Finvestor%2Fonboarding">
+                Create new account
+              </a>
+            </Button>
+          </div>
         ) : (
           <Suspense
             fallback={
@@ -32,9 +39,11 @@ export default function LoginPage() {
             <LoginForm />
           </Suspense>
         )}
-        <p>
-          New to Vertex? <a href={useAuth0 ? "/auth/login?screen_hint=signup&returnTo=%2Finvestor%2Fonboarding" : "/register"}>Open an account</a>
-        </p>
+        {!useAuth0 && (
+          <p>
+            New to Vertex? <a href="/register">Create new account</a>
+          </p>
+        )}
       </section>
     </div>
   );
