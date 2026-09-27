@@ -33,7 +33,7 @@ export default function LoginPage() {
           </Suspense>
         )}
         <p>
-          New to Vertex? <Link href="/register">Open an account</Link>
+          New to Vertex? <a href="/register">Open an account</a>
         </p>
       </section>
     </div>

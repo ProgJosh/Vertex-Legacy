@@ -16,6 +16,14 @@ test("login form exposes the demonstration boundary", async ({ page }) => {
   await expect(page.getByText(/Local demo accounts/i)).toBeVisible();
 });
 
+test("account creation link performs a full navigation to registration", async ({ page }) => {
+  await page.goto("/login");
+  const createAccount = page.getByRole("link", { name: "Open an account" }).last();
+  await expect(createAccount).toHaveAttribute("href", "/register");
+  await createAccount.click();
+  await expect(page).toHaveURL(/\/register$/);
+});
+
 test("company plans render the API-backed VIP and commission schedules", async ({ page }) => {
   await page.goto("/plans");
 
