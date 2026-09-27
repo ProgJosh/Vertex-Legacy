@@ -27,7 +27,9 @@ export class AuthGuard implements CanActivate {
       include: {
         roles: {
           include: {
-            role: { include: { permissions: { include: { permission: true } } } },
+            role: {
+              include: { permissions: { include: { permission: true } } },
+            },
           },
         },
       },
@@ -35,31 +37,45 @@ export class AuthGuard implements CanActivate {
   }
 
   async canActivate(context: ExecutionContext) {
-    if (this.reflector.getAllAndOverride<boolean>(IS_PUBLIC, [context.getHandler(), context.getClass()])) {
+    if (
+      this.reflector.getAllAndOverride<boolean>(IS_PUBLIC, [
+        context.getHandler(),
+        context.getClass(),
+      ])
+    ) {
       return true;
     }
     const request = context.switchToHttp().getRequest();
     const provider =
-      process.env.AUTH_PROVIDER ?? (process.env.NODE_ENV === "production" ? "auth0" : "mock");
+      process.env.AUTH_PROVIDER ??
+      (process.env.NODE_ENV === "production" ? "auth0" : "mock");
     let user;
+    let identityMfaVerified = false;
 
     if (provider === "mock") {
       if (process.env.NODE_ENV === "production") {
-        throw new ServiceUnavailableException("Mock authentication is disabled in production.");
+        throw new ServiceUnavailableException(
+          "Mock authentication is disabled in production.",
+        );
       }
       const demoIdentity = request.headers["x-demo-user"];
       if (typeof demoIdentity !== "string") {
         throw new UnauthorizedException("Sign in to continue.");
       }
-      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-        demoIdentity,
+      const isUuid =
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+          demoIdentity,
+        );
+      user = await this.findUser(
+        isUuid
+          ? { OR: [{ id: demoIdentity }, { email: demoIdentity }] }
+          : { email: demoIdentity },
       );
-      user = await this.findUser(isUuid ? { OR: [{ id: demoIdentity }, { email: demoIdentity }] } : { email: demoIdentity });
     } else {
       const authorization = request.headers.authorization;
       const token =
         typeof authorization === "string"
-          ? authorization.match(/^Bearer\s+(.+)$/i)?.[1] ?? ""
+          ? (authorization.match(/^Bearer\s+(.+)$/i)?.[1] ?? "")
           : "";
       if (!token) throw new UnauthorizedException("Missing bearer token.");
       const issuer =
@@ -70,9 +86,13 @@ export class AuthGuard implements CanActivate {
             ".amazonaws.com/" +
             process.env.COGNITO_USER_POOL_ID;
       const audience =
-        provider === "auth0" ? process.env.AUTH0_AUDIENCE : process.env.COGNITO_CLIENT_ID;
-      if (!audience || !process.env.AUTH0_DOMAIN && provider === "auth0") {
-        throw new ServiceUnavailableException("Identity provider configuration is incomplete.");
+        provider === "auth0"
+          ? process.env.AUTH0_AUDIENCE
+          : process.env.COGNITO_CLIENT_ID;
+      if (!audience || (!process.env.AUTH0_DOMAIN && provider === "auth0")) {
+        throw new ServiceUnavailableException(
+          "Identity provider configuration is incomplete.",
+        );
       }
       const jwksUrl = issuer.endsWith("/")
         ? issuer + ".well-known/jwks.json"
@@ -85,9 +105,20 @@ export class AuthGuard implements CanActivate {
           algorithms: ["RS256"],
         });
       } catch {
-        throw new UnauthorizedException("The access token is invalid or expired.");
+        throw new UnauthorizedException(
+          "The access token is invalid or expired.",
+        );
       }
-      if (!result.payload.sub) throw new UnauthorizedException("Token subject is missing.");
+      const authenticationMethods = Array.isArray(result.payload.amr)
+        ? result.payload.amr.filter(
+            (method): method is string => typeof method === "string",
+          )
+        : [];
+      identityMfaVerified = authenticationMethods.some((method) =>
+        ["mfa", "otp", "oath", "hwk"].includes(method.toLowerCase()),
+      );
+      if (!result.payload.sub)
+        throw new UnauthorizedException("Token subject is missing.");
       user = await this.findUser({
         identities: { some: { provider, providerSubject: result.payload.sub } },
       });
@@ -97,27 +128,57 @@ export class AuthGuard implements CanActivate {
           headers: { authorization: "Bearer " + token },
         });
         if (!profileResponse.ok) {
-          throw new UnauthorizedException("Unable to retrieve the authenticated profile.");
+          throw new UnauthorizedException(
+            "Unable to retrieve the authenticated profile.",
+          );
         }
-        const profile = (await profileResponse.json()) as Record<string, unknown>;
-        if (profile.sub !== result.payload.sub || typeof profile.email !== "string") {
-          throw new UnauthorizedException("The authenticated profile is incomplete.");
+        const profile = (await profileResponse.json()) as Record<
+          string,
+          unknown
+        >;
+        if (
+          profile.sub !== result.payload.sub ||
+          typeof profile.email !== "string"
+        ) {
+          throw new UnauthorizedException(
+            "The authenticated profile is incomplete.",
+          );
         }
         await this.users.provisionAuth0User({
           subject: result.payload.sub,
           email: profile.email,
           emailVerified: profile.email_verified === true,
-          givenName: typeof profile.given_name === "string" ? profile.given_name : undefined,
-          familyName: typeof profile.family_name === "string" ? profile.family_name : undefined,
+          givenName:
+            typeof profile.given_name === "string"
+              ? profile.given_name
+              : undefined,
+          familyName:
+            typeof profile.family_name === "string"
+              ? profile.family_name
+              : undefined,
           name: typeof profile.name === "string" ? profile.name : undefined,
         });
         user = await this.findUser({
-          identities: { some: { provider: "auth0", providerSubject: result.payload.sub } },
+          identities: {
+            some: { provider: "auth0", providerSubject: result.payload.sub },
+          },
         });
       }
     }
 
-    if (!user || user.status !== "ACTIVE") throw new UnauthorizedException("Account is not active.");
+    if (!user || user.status !== "ACTIVE")
+      throw new UnauthorizedException("Account is not active.");
+    if (await this.users.ensureBootstrapAdmin(user.id, user.email)) {
+      user = await this.findUser({ id: user.id });
+      if (!user) throw new UnauthorizedException("Account is not active.");
+    }
+    if (identityMfaVerified && !user.mfaEnabledAt) {
+      await this.prisma.user.update({
+        where: { id: user.id },
+        data: { mfaEnabledAt: new Date() },
+      });
+    }
+    await this.users.ensureSignupBonus(user.id);
     request.user = {
       id: user.id,
       email: user.email,

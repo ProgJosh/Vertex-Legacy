@@ -3,9 +3,24 @@ import { auth0 } from "./auth0";
 
 const baseUrl = process.env.INTERNAL_API_URL ?? "http://localhost:4000/v1";
 
+const wait = (milliseconds: number) =>
+  new Promise((resolve) => setTimeout(resolve, milliseconds));
+
+async function fetchWithDatabaseWakeRetry(url: string, init: RequestInit) {
+  let response = await fetch(url, init);
+  for (const delay of [500, 1_000, 2_000, 4_000]) {
+    if (response.status !== 503) break;
+    await wait(delay);
+    response = await fetch(url, init);
+  }
+  return response;
+}
+
 export async function apiGet<T>(path: string): Promise<T> {
   const isPublicPath = path === "/public" || path.startsWith("/public/");
-  const useAuth0 = process.env.AUTH_PROVIDER === "auth0" || process.env.NODE_ENV === "production";
+  const useAuth0 =
+    process.env.AUTH_PROVIDER === "auth0" ||
+    process.env.NODE_ENV === "production";
   const headers: Record<string, string> = {};
   if (isPublicPath) {
     // Public catalogue/configuration endpoints must also render for signed-out
@@ -19,12 +34,14 @@ export async function apiGet<T>(path: string): Promise<T> {
     const demoUser = jar.get("vertex_demo_user")?.value;
     if (demoUser) headers["x-demo-user"] = demoUser;
   }
-  const response = await fetch(baseUrl + path, {
+  const response = await fetchWithDatabaseWakeRetry(baseUrl + path, {
     headers,
     cache: "no-store",
   });
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ message: "Service unavailable" }));
+    const error = await response
+      .json()
+      .catch(() => ({ message: "Service unavailable" }));
     throw new Error(error.message ?? "Service unavailable");
   }
   return response.json() as Promise<T>;

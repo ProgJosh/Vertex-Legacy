@@ -1,5 +1,11 @@
 import Link from "next/link";
-import { ArrowRight, Landmark, LockKeyhole, Scale, ShieldCheck } from "lucide-react";
+import {
+  ArrowRight,
+  Landmark,
+  LockKeyhole,
+  Scale,
+  ShieldCheck,
+} from "lucide-react";
 import { formatPhp } from "@vertex/ui";
 import { optionalApiGet } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -39,8 +45,9 @@ export default async function LandingPage() {
             <p className="eyebrow">Disciplined investment operations</p>
             <h1>Clarity before capital. Records before promises.</h1>
             <p>
-              Vertex Legacy gives verified investors one accountable place to review plan terms,
-              fund a sandbox wallet, authorize withdrawals, and trace every financial movement.
+              Vertex Legacy gives verified investors one accountable place to
+              review plan terms, fund a reviewed wallet, request withdrawals,
+              and trace every financial movement.
             </p>
             <div className="landing-actions">
               <Button asChild>
@@ -53,7 +60,10 @@ export default async function LandingPage() {
               </Button>
             </div>
           </div>
-          <aside className="trust-panel" aria-label="Platform operating principles">
+          <aside
+            className="trust-panel"
+            aria-label="Platform operating principles"
+          >
             <div className="trust-row">
               <span>Environment</span>
               <strong>Sandbox-first</strong>
@@ -82,8 +92,9 @@ export default async function LandingPage() {
               <h2>A financial record you can interrogate.</h2>
             </div>
             <p>
-              Balances are projections from immutable entries. Corrections use traceable reversals,
-              and provider callbacks are verified before money states change.
+              Balances are projections from immutable entries. Corrections use
+              traceable reversals, and provider callbacks are verified before
+              money states change.
             </p>
           </div>
           <div className="principles">
@@ -92,8 +103,9 @@ export default async function LandingPage() {
               <p className="principle-index">01 · Custody boundary</p>
               <h3>Providers stay accountable</h3>
               <p className="muted">
-                Cash-in and payout actions move through adapter contracts built for licensed
-                providers. The local experience remains visibly simulated.
+                Cash-in and payout actions move through adapter contracts built
+                for licensed providers. The local experience remains visibly
+                simulated.
               </p>
             </article>
             <article className="principle">
@@ -101,8 +113,8 @@ export default async function LandingPage() {
               <p className="principle-index">02 · Balanced records</p>
               <h3>Every posting balances</h3>
               <p className="muted">
-                Deposits, investments, fees, reserves, payouts, promotions, and commissions keep
-                separate ledger accounts.
+                Deposits, investments, fees, reserves, payouts, promotions, and
+                commissions keep separate ledger accounts.
               </p>
             </article>
             <article className="principle">
@@ -110,8 +122,8 @@ export default async function LandingPage() {
               <p className="principle-index">03 · Qualified access</p>
               <h3>Verification governs action</h3>
               <p className="muted">
-                KYC, MFA, role permissions, configured limits, and operating windows are enforced
-                on the server.
+                KYC, MFA, role permissions, configured limits, and operating
+                windows are enforced on the server.
               </p>
             </article>
           </div>
@@ -143,7 +155,9 @@ export default async function LandingPage() {
               </div>
               <div className="metric">
                 <small>Withdrawal fee</small>
-                <strong>{new PrismaDecimalDisplay(config.withdrawalFeeRate).percent()}</strong>
+                <strong>
+                  {new PrismaDecimalDisplay(config.withdrawalFeeRate).percent()}
+                </strong>
                 <em>Shown before final authorization</em>
               </div>
               <div className="metric">
@@ -155,7 +169,9 @@ export default async function LandingPage() {
               </div>
             </div>
           ) : (
-            <div className="error-state">Current operating parameters are temporarily unavailable.</div>
+            <div className="error-state">
+              Current operating parameters are temporarily unavailable.
+            </div>
           )}
         </div>
       </section>
@@ -168,15 +184,19 @@ export default async function LandingPage() {
               <h2>Terms first. Suitability always.</h2>
             </div>
             <p>
-              Targets describe an intended range, not a promise. Eligibility, capacity, and risk
-              classification are assessed before subscription.
+              Targets describe an intended range, not a promise. Eligibility,
+              capacity, and risk classification are assessed before
+              subscription.
             </p>
           </div>
           {plans.length ? (
             <div className="plan-grid">
               {plans.slice(0, 3).map((plan) => (
                 <article
-                  className={"plan-card " + (plan.promotionalBadge ? "plan-card-featured" : "")}
+                  className={
+                    "plan-card " +
+                    (plan.promotionalBadge ? "plan-card-featured" : "")
+                  }
                   key={plan.slug}
                 >
                   <p className="eyebrow">{plan.category}</p>
@@ -199,12 +219,14 @@ export default async function LandingPage() {
               ))}
             </div>
           ) : (
-            <div className="empty-state">No company plans are currently open for subscription.</div>
+            <div className="empty-state">
+              No company plans are currently open for subscription.
+            </div>
           )}
           <p className="disclosure" style={{ marginTop: 22 }}>
-            Capital is at risk. Illustrative performance may not be achieved. Vertex Legacy does
-            not activate live money movement without approved providers, credentials, and required
-            regulatory authorization.
+            Capital is at risk. Illustrative performance may not be achieved.
+            Vertex Legacy does not activate live money movement without approved
+            providers, credentials, and required regulatory authorization.
           </p>
         </div>
       </section>
@@ -216,7 +238,8 @@ class PrismaDecimalDisplay {
   constructor(private readonly value: string) {}
   percent() {
     const [whole = "0", fraction = ""] = this.value.split(".");
-    const basis = BigInt(whole) * 10_000n + BigInt(fraction.padEnd(4, "0").slice(0, 4));
+    const basis =
+      BigInt(whole) * 10_000n + BigInt(fraction.padEnd(4, "0").slice(0, 4));
     const percentWhole = basis / 100n;
     const percentFraction = (basis % 100n).toString().padStart(2, "0");
     return percentWhole.toString() + "." + percentFraction + "%";

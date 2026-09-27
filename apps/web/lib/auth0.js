@@ -13,7 +13,6 @@ export const auth0 = new Auth0Client({
     callback: "/auth/callback",
   },
   enableAccessTokenEndpoint: false,
-  signInReturnToPath: "/investor",
   onCallback: async (error, context, session) => {
     const baseUrl =
       context.appBaseUrl ?? process.env.APP_BASE_URL ?? "http://localhost:3000";
@@ -38,10 +37,20 @@ export const auth0 = new Auth0Client({
       );
     }
 
-    const returnTo =
+    const provisioned = await provision.json().catch(() => ({ roles: [] }));
+    const requestedReturnTo =
       context.returnTo?.startsWith("/") && !context.returnTo.startsWith("//")
         ? context.returnTo
+        : null;
+    const defaultReturnTo =
+      provisioned.roles?.includes("ADMIN") ||
+      provisioned.roles?.includes("FINANCE_COMPLIANCE")
+        ? "/admin"
         : "/investor";
+    const returnTo =
+      requestedReturnTo && requestedReturnTo !== "/"
+        ? requestedReturnTo
+        : defaultReturnTo;
     return NextResponse.redirect(new URL(returnTo, baseUrl));
   },
 });

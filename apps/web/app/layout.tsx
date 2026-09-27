@@ -9,7 +9,7 @@ export const metadata: Metadata = {
     template: "%s · Vertex Legacy",
   },
   description:
-    "A disciplined, sandbox-first investment operations platform for verified investors.",
+    "A disciplined investment operations platform with reviewed wallet settlement for verified users.",
   metadataBase: new URL(process.env.WEB_ORIGIN ?? "http://localhost:3000"),
   icons: {
     icon: [{ url: "/icon.jpg", type: "image/jpeg" }],
@@ -18,7 +18,8 @@ export const metadata: Metadata = {
   },
   openGraph: {
     title: "Vertex Legacy",
-    description: "Disciplined investing, transparent operations, and traceable financial records.",
+    description:
+      "Disciplined investing, transparent operations, and traceable financial records.",
     type: "website",
   },
   robots: {
@@ -27,7 +28,11 @@ export const metadata: Metadata = {
   },
 };
 
-export default async function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   const nonce = (await headers()).get("x-nonce") ?? undefined;
   return (
     <html lang="en" className="dark">

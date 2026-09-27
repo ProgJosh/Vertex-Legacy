@@ -5,11 +5,13 @@ import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
 import helmet from "helmet";
 import { loadEnvironment, normalizeOrigin } from "@vertex/config";
 import { AppModule } from "./app.module";
+import { DatabaseUnavailableFilter } from "./common/database-unavailable.filter";
 
 async function bootstrap() {
   const env = loadEnvironment();
   const corsOrigin = normalizeOrigin(env.WEB_ORIGIN) ?? env.WEB_ORIGIN;
   const app = await NestFactory.create(AppModule, { rawBody: true });
+  app.useGlobalFilters(new DatabaseUnavailableFilter(app.getHttpAdapter()));
   app.setGlobalPrefix("v1");
   app.use(
     helmet({

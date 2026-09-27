@@ -58,7 +58,8 @@ export class AppController {
     @Inject(PlanService) private readonly plans: PlanService,
     @Inject(AuditService) private readonly audit: AuditService,
     @Inject(ProvidersService) private readonly providers: ProvidersService,
-    @Inject(DailyRewardService) private readonly dailyRewards: DailyRewardService,
+    @Inject(DailyRewardService)
+    private readonly dailyRewards: DailyRewardService,
   ) {}
 
   @Public()
@@ -218,7 +219,7 @@ export class AppController {
   @RequirePermissions(Permissions.USER_READ_SELF)
   @Post("auth/provision")
   provision(@CurrentUser() current: AuthenticatedUser) {
-    return { provisioned: true, userId: current.id };
+    return { provisioned: true, userId: current.id, roles: current.roles };
   }
 
   @RequirePermissions(Permissions.USER_READ_SELF)
@@ -279,6 +280,50 @@ export class AppController {
   }
 
   @RequirePermissions(Permissions.USER_READ_SELF)
+  @Post("me/kyc/submit")
+  async submitKycForReview(@CurrentUser() current: AuthenticatedUser) {
+    const latest = await this.prisma.kycCase.findFirst({
+      where: { userId: current.id },
+      orderBy: { createdAt: "desc" },
+    });
+    if (
+      latest?.status === "VERIFIED" ||
+      latest?.status === "PENDING" ||
+      latest?.status === "IN_REVIEW"
+    ) {
+      return latest;
+    }
+    const submitted =
+      latest?.status === "NOT_STARTED"
+        ? await this.prisma.kycCase.update({
+            where: { id: latest.id },
+            data: {
+              provider: "manual-review",
+              status: "PENDING",
+              submittedAt: new Date(),
+            },
+          })
+        : await this.prisma.kycCase.create({
+            data: {
+              userId: current.id,
+              provider: "manual-review",
+              status: "PENDING",
+              submittedAt: new Date(),
+            },
+          });
+    await this.audit.record({
+      actorUserId: current.id,
+      action: "KYC_SUBMIT",
+      resourceType: "KycCase",
+      resourceId: submitted.id,
+      reason: "User submitted identity review request",
+      outcome: "SUCCESS",
+      after: { status: submitted.status },
+    });
+    return submitted;
+  }
+
+  @RequirePermissions(Permissions.USER_READ_SELF)
   @Post("me/security/mfa/mock-enable")
   async enableMfa(@CurrentUser() current: AuthenticatedUser) {
     if ((process.env.AUTH_PROVIDER ?? "mock") !== "mock")
@@ -320,7 +365,8 @@ export class AppController {
           ? encryptPayoutIdentifier(input.accountIdentifier)
           : "sandbox-token:" + crypto.randomUUID(),
         maskedIdentifier: "•••• " + suffix,
-        verifiedAt: manual || process.env.KYC_PROVIDER === "mock" ? new Date() : null,
+        verifiedAt:
+          manual || process.env.KYC_PROVIDER === "mock" ? new Date() : null,
       },
     });
   }
@@ -438,16 +484,24 @@ export class AppController {
     @CurrentUser() current: AuthenticatedUser,
     @Body() body: unknown,
   ) {
-    const { referralCode } = z.object({
-      referralCode: z.string().trim().toUpperCase().regex(/^VTX-[A-F0-9]{8}$/),
-    }).parse(body);
+    const { referralCode } = z
+      .object({
+        referralCode: z
+          .string()
+          .trim()
+          .toUpperCase()
+          .regex(/^VTX-[A-F0-9]{8}$/),
+      })
+      .parse(body);
     const prefix = referralCode.slice(4).toLowerCase();
     const matches = await this.prisma.$queryRaw<Array<{ id: string }>>(
       Prisma.sql`SELECT "id"::text AS "id" FROM "User" WHERE lower(left("id"::text, 8)) = ${prefix} LIMIT 2`,
     );
-    if (matches.length !== 1) throw new NotFoundException("Invitation code was not found.");
+    if (matches.length !== 1)
+      throw new NotFoundException("Invitation code was not found.");
     const referrerUserId = matches[0]!.id;
-    if (referrerUserId === current.id) throw new BadRequestException("Self-referrals are not allowed.");
+    if (referrerUserId === current.id)
+      throw new BadRequestException("Self-referrals are not allowed.");
     return this.prisma.referral.upsert({
       where: { referredUserId: current.id },
       update: {},
@@ -457,7 +511,8 @@ export class AppController {
         referralCode,
         status: "VERIFIED",
         verifiedAt: new Date(),
-        eligibilityReason: "Identity linked; commission eligibility begins only after a documented qualifying service-fee event.",
+        eligibilityReason:
+          "Identity linked; commission eligibility begins only after a documented qualifying service-fee event.",
       },
     });
   }
@@ -726,8 +781,14 @@ export class AppController {
     @Body() body: unknown,
   ) {
     const { reason } = reasonSchema.parse(body);
-    const before = await this.prisma.deposit.findUniqueOrThrow({ where: { id } });
-    const updated = await this.financial.approveManualDeposit(id, current.id, reason);
+    const before = await this.prisma.deposit.findUniqueOrThrow({
+      where: { id },
+    });
+    const updated = await this.financial.approveManualDeposit(
+      id,
+      current.id,
+      reason,
+    );
     await this.audit.record({
       actorUserId: current.id,
       action: "MANUAL_DEPOSIT_APPROVE",
@@ -735,8 +796,14 @@ export class AppController {
       resourceId: id,
       reason,
       outcome: "SUCCESS",
-      before: { status: before.status, providerReference: before.providerReference },
-      after: { status: updated.status, ledgerTransactionId: updated.ledgerTransactionId },
+      before: {
+        status: before.status,
+        providerReference: before.providerReference,
+      },
+      after: {
+        status: updated.status,
+        ledgerTransactionId: updated.ledgerTransactionId,
+      },
     });
     return updated;
   }
@@ -749,8 +816,14 @@ export class AppController {
     @Body() body: unknown,
   ) {
     const { reason } = reasonSchema.parse(body);
-    const before = await this.prisma.deposit.findUniqueOrThrow({ where: { id } });
-    const updated = await this.financial.rejectManualDeposit(id, current.id, reason);
+    const before = await this.prisma.deposit.findUniqueOrThrow({
+      where: { id },
+    });
+    const updated = await this.financial.rejectManualDeposit(
+      id,
+      current.id,
+      reason,
+    );
     await this.audit.record({
       actorUserId: current.id,
       action: "MANUAL_DEPOSIT_REJECT",
@@ -758,7 +831,10 @@ export class AppController {
       resourceId: id,
       reason,
       outcome: "SUCCESS",
-      before: { status: before.status, providerReference: before.providerReference },
+      before: {
+        status: before.status,
+        providerReference: before.providerReference,
+      },
       after: { status: updated.status },
     });
     return updated;
@@ -818,7 +894,11 @@ export class AppController {
     @Body() body: unknown,
   ) {
     const input = submitManualPayoutSchema.parse(body);
-    const result = await this.financial.submitManualPayout(id, current.id, input);
+    const result = await this.financial.submitManualPayout(
+      id,
+      current.id,
+      input,
+    );
     await this.audit.record({
       actorUserId: current.id,
       action: "MANUAL_PAYOUT_TRANSFER_RECORDED",
@@ -839,7 +919,11 @@ export class AppController {
     @Body() body: unknown,
   ) {
     const { reason } = reasonSchema.parse(body);
-    const result = await this.financial.settleManualPayout(id, current.id, reason);
+    const result = await this.financial.settleManualPayout(
+      id,
+      current.id,
+      reason,
+    );
     await this.audit.record({
       actorUserId: current.id,
       action: "MANUAL_PAYOUT_SETTLEMENT_CONFIRMED",
@@ -860,7 +944,11 @@ export class AppController {
     @Body() body: unknown,
   ) {
     const { reason } = reasonSchema.parse(body);
-    const result = await this.financial.failManualPayout(id, current.id, reason);
+    const result = await this.financial.failManualPayout(
+      id,
+      current.id,
+      reason,
+    );
     await this.audit.record({
       actorUserId: current.id,
       action: "MANUAL_PAYOUT_FAILURE_CONFIRMED",
@@ -884,7 +972,11 @@ export class AppController {
     const before = await this.prisma.withdrawal.findUniqueOrThrow({
       where: { id },
     });
-    const updated = await this.financial.approveWithdrawal(id, current.id, reason);
+    const updated = await this.financial.approveWithdrawal(
+      id,
+      current.id,
+      reason,
+    );
     await this.audit.record({
       actorUserId: current.id,
       action: "WITHDRAWAL_APPROVE",
@@ -893,7 +985,9 @@ export class AppController {
       reason,
       outcome: "SUCCESS",
       before: { status: before.status } as unknown as Prisma.InputJsonValue,
-      after: { status: (updated as { status: string }).status } as unknown as Prisma.InputJsonValue,
+      after: {
+        status: (updated as { status: string }).status,
+      } as unknown as Prisma.InputJsonValue,
     });
     return updated;
   }
@@ -1106,8 +1200,12 @@ export class AppController {
         reason: z.string().min(8).max(500),
       })
       .parse(body);
-    const { reason, dailyPayoutCentavos: dailyInput, totalReturnCentavos: totalInput, ...values } =
-      input;
+    const {
+      reason,
+      dailyPayoutCentavos: dailyInput,
+      totalReturnCentavos: totalInput,
+      ...values
+    } = input;
     const dailyPayoutCentavos = BigInt(dailyInput ?? "0");
     const totalReturnCentavos = totalInput
       ? BigInt(totalInput)
@@ -1368,16 +1466,22 @@ export class AppController {
     @Headers("x-xendit-signature") xenditSig?: string,
     @Headers("x-webhook-signature") genericSig?: string,
   ) {
-    const rawBody = (req.rawBody as Buffer)?.toString("utf8") ?? JSON.stringify(req.body);
+    const rawBody =
+      (req.rawBody as Buffer)?.toString("utf8") ?? JSON.stringify(req.body);
     const signature = paymongoSig ?? xenditSig ?? genericSig;
 
     if (!signature) {
       throw new BadRequestException("Missing webhook signature");
     }
 
-    const event = this.providers.parseWebhookEvent(JSON.parse(rawBody), signature);
+    const event = this.providers.parseWebhookEvent(
+      JSON.parse(rawBody),
+      signature,
+    );
     if (!event) {
-      throw new BadRequestException("Invalid webhook signature or unsupported event");
+      throw new BadRequestException(
+        "Invalid webhook signature or unsupported event",
+      );
     }
 
     // Store webhook for audit
@@ -1415,7 +1519,9 @@ export class AppController {
         data: {
           status: "FAILED",
           processedAt: new Date(),
-          processingResult: { error: error instanceof Error ? error.message : String(error) },
+          processingResult: {
+            error: error instanceof Error ? error.message : String(error),
+          },
         },
       });
       throw error;
@@ -1428,7 +1534,9 @@ export class AppController {
     });
 
     if (!deposit) {
-      throw new Error(`Deposit not found for provider reference ${event.providerReference}`);
+      throw new Error(
+        `Deposit not found for provider reference ${event.providerReference}`,
+      );
     }
 
     if (deposit.status === MoneyRequestStatus.COMPLETED) {
@@ -1440,17 +1548,31 @@ export class AppController {
         where: { code: "PLATFORM:CASH" },
       });
       const userCash = await tx.ledgerAccount.findFirstOrThrow({
-        where: { userId: deposit.userId, type: LedgerAccountType.USER_DEPOSITED_CASH },
+        where: {
+          userId: deposit.userId,
+          type: LedgerAccountType.USER_DEPOSITED_CASH,
+        },
       });
       const posted = await this.financial["ledger"].post(tx, {
         reference: "DEP-" + deposit.id.slice(0, 8).toUpperCase(),
         idempotencyKey: "deposit:" + deposit.id,
         kind: "DEPOSIT_SETTLEMENT",
         description: `${event.metadata?.payment_method ?? "Payment"} deposit settlement`,
-        metadata: { depositId: deposit.id, providerReference: deposit.providerReference },
+        metadata: {
+          depositId: deposit.id,
+          providerReference: deposit.providerReference,
+        },
         lines: [
-          { accountId: platformCash.id, direction: "DEBIT", amountCentavos: deposit.amountCentavos },
-          { accountId: userCash.id, direction: "CREDIT", amountCentavos: deposit.amountCentavos },
+          {
+            accountId: platformCash.id,
+            direction: "DEBIT",
+            amountCentavos: deposit.amountCentavos,
+          },
+          {
+            accountId: userCash.id,
+            direction: "CREDIT",
+            amountCentavos: deposit.amountCentavos,
+          },
         ],
       });
       await tx.deposit.update({
@@ -1491,7 +1613,8 @@ export class AppController {
       where: { id: deposit.id },
       data: {
         status: MoneyRequestStatus.FAILED,
-        failureReason: event.metadata?.failure_message as string ?? "Payment failed",
+        failureReason:
+          (event.metadata?.failure_message as string) ?? "Payment failed",
       },
     });
     await this.prisma.notification.create({
@@ -1511,7 +1634,9 @@ export class AppController {
     });
 
     if (!withdrawal) {
-      throw new Error(`Withdrawal not found for provider reference ${event.providerReference}`);
+      throw new Error(
+        `Withdrawal not found for provider reference ${event.providerReference}`,
+      );
     }
 
     if (withdrawal.status === MoneyRequestStatus.COMPLETED) {
@@ -1520,7 +1645,10 @@ export class AppController {
 
     await this.prisma.$transaction(async (tx) => {
       const reserve = await tx.ledgerAccount.findFirstOrThrow({
-        where: { userId: withdrawal.userId, type: LedgerAccountType.USER_WITHDRAWAL_RESERVE },
+        where: {
+          userId: withdrawal.userId,
+          type: LedgerAccountType.USER_WITHDRAWAL_RESERVE,
+        },
       });
       const platformCash = await tx.ledgerAccount.findUniqueOrThrow({
         where: { code: "PLATFORM:CASH" },
@@ -1543,11 +1671,26 @@ export class AppController {
         idempotencyKey: "withdrawal:settle:" + withdrawal.id,
         kind: "WITHDRAWAL_SETTLEMENT",
         description: "Payout settlement and withdrawal fee",
-        metadata: { withdrawalId: withdrawal.id, providerReference: withdrawal.providerReference },
+        metadata: {
+          withdrawalId: withdrawal.id,
+          providerReference: withdrawal.providerReference,
+        },
         lines: [
-          { accountId: reserve.id, direction: "DEBIT", amountCentavos: withdrawal.requestedCentavos },
-          { accountId: platformCash.id, direction: "CREDIT", amountCentavos: withdrawal.netCentavos },
-          { accountId: feeRevenue.id, direction: "CREDIT", amountCentavos: withdrawal.feeCentavos },
+          {
+            accountId: reserve.id,
+            direction: "DEBIT",
+            amountCentavos: withdrawal.requestedCentavos,
+          },
+          {
+            accountId: platformCash.id,
+            direction: "CREDIT",
+            amountCentavos: withdrawal.netCentavos,
+          },
+          {
+            accountId: feeRevenue.id,
+            direction: "CREDIT",
+            amountCentavos: withdrawal.feeCentavos,
+          },
         ],
       });
       await tx.withdrawal.update({
@@ -1584,10 +1727,14 @@ export class AppController {
 
     if (!withdrawal) return;
 
-    const failureReason = event.metadata?.failure_message as string ?? "Payout failed";
+    const failureReason =
+      (event.metadata?.failure_message as string) ?? "Payout failed";
 
     await this.prisma.$transaction(async (tx) => {
-      await this.financial.reverseFailedWithdrawal(withdrawal.id, failureReason);
+      await this.financial.reverseFailedWithdrawal(
+        withdrawal.id,
+        failureReason,
+      );
     });
   }
 

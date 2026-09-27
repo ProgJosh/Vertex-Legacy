@@ -1,6 +1,11 @@
 import { ConflictException, Inject, Injectable } from "@nestjs/common";
-import { LedgerAccountType, NormalBalance, Prisma, UserStatus } from "@prisma/client";
-import { createHmac } from "node:crypto";
+import {
+  LedgerAccountType,
+  NormalBalance,
+  Prisma,
+  UserStatus,
+} from "@prisma/client";
+import { createHmac, randomUUID } from "node:crypto";
 import { z } from "zod";
 import { Roles } from "@vertex/types";
 import { PrismaService } from "./prisma.service";
@@ -37,17 +42,121 @@ export class UserService {
     @Inject(ProvidersService) private readonly providers: ProvidersService,
   ) {}
 
+  async ensureSignupBonus(userId: string) {
+    try {
+      return await this.prisma.$transaction(
+        async (tx) => {
+          const idempotencyKey = "signup-bonus:" + userId;
+          const existing = await tx.ledgerTransaction.findUnique({
+            where: { idempotencyKey },
+          });
+          if (existing) return existing;
+
+          const config = await this.config.active(tx);
+          const [promo, clearing] = await Promise.all([
+            tx.ledgerAccount.findFirstOrThrow({
+              where: {
+                userId,
+                type: LedgerAccountType.USER_PROMOTIONAL_CREDIT,
+              },
+            }),
+            tx.ledgerAccount.findUniqueOrThrow({
+              where: { code: "PLATFORM:ADJUSTMENT" },
+            }),
+          ]);
+          const posted = await this.ledger.post(tx, {
+            reference: "BONUS-" + userId.slice(0, 8).toUpperCase(),
+            idempotencyKey,
+            kind: "SIGNUP_PROMOTIONAL_CREDIT",
+            description: "One-time account registration promotional credit",
+            metadata: { userId },
+            lines: [
+              {
+                accountId: clearing.id,
+                direction: "DEBIT",
+                amountCentavos: config.signupBonusCentavos,
+              },
+              {
+                accountId: promo.id,
+                direction: "CREDIT",
+                amountCentavos: config.signupBonusCentavos,
+              },
+            ],
+          });
+          await tx.wallet.update({
+            where: { userId },
+            data: {
+              promotionalAvailableCentavos: {
+                increment: config.signupBonusCentavos,
+              },
+              projectionVersion: { increment: 1 },
+            },
+          });
+          await tx.notification.create({
+            data: {
+              userId,
+              type: "SIGNUP_BONUS",
+              title: "Welcome credit received",
+              body: "Your one-time ₱25 non-withdrawable registration credit is available.",
+              data: { amountCentavos: config.signupBonusCentavos.toString() },
+            },
+          });
+          return posted;
+        },
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+      );
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        ["P2002", "P2034"].includes(error.code)
+      ) {
+        const existing = await this.prisma.ledgerTransaction.findUnique({
+          where: { idempotencyKey: "signup-bonus:" + userId },
+        });
+        if (existing) return existing;
+      }
+      throw error;
+    }
+  }
+
+  async ensureBootstrapAdmin(userId: string, email: string) {
+    const bootstrapEmail = process.env.BOOTSTRAP_ADMIN_EMAIL?.trim().toLowerCase();
+    if (!bootstrapEmail || email.trim().toLowerCase() !== bootstrapEmail) return false;
+    return this.prisma.$transaction(async (tx) => {
+      const role = await tx.role.findUniqueOrThrow({ where: { name: Roles.ADMIN } });
+      const existing = await tx.userRole.findUnique({
+        where: { userId_roleId: { userId, roleId: role.id } },
+      });
+      if (existing) return false;
+      await tx.userRole.create({ data: { userId, roleId: role.id } });
+      await tx.auditLog.create({
+        data: {
+          actorUserId: userId,
+          action: "BOOTSTRAP_ADMIN_ASSIGN",
+          resourceType: "User",
+          resourceId: userId,
+          reason: "Configured initial production administrator",
+          outcome: "SUCCESS",
+          after: { role: Roles.ADMIN },
+          correlationId: randomUUID(),
+        },
+      });
+      return true;
+    });
+  }
+
   async provisionAuth0User(raw: unknown) {
     const input = auth0ProfileSchema.parse(raw);
     const email = input.email.trim().toLowerCase();
-    const existingIdentity = await this.prisma.identityProviderAccount.findUnique({
-      where: {
-        provider_providerSubject: {
-          provider: "auth0",
-          providerSubject: input.subject,
+    const existingIdentity =
+      await this.prisma.identityProviderAccount.findUnique({
+        where: {
+          provider_providerSubject: {
+            provider: "auth0",
+            providerSubject: input.subject,
+          },
         },
-      },
-    });
+      });
     if (existingIdentity) {
       await this.prisma.identityProviderAccount.update({
         where: { id: existingIdentity.id },
@@ -60,7 +169,9 @@ export class UserService {
     const firstName = input.givenName?.trim() || displayName[0] || "Vertex";
     const lastName =
       input.familyName?.trim() || displayName.slice(1).join(" ") || "Member";
-    const role = await this.prisma.role.findUniqueOrThrow({ where: { name: Roles.INVESTOR } });
+    const role = await this.prisma.role.findUniqueOrThrow({
+      where: { name: Roles.INVESTOR },
+    });
 
     try {
       return await this.prisma.$transaction(
@@ -118,17 +229,31 @@ export class UserService {
               },
               wallet: { create: {} },
               roles: { create: { roleId: role.id } },
-              kycCases: { create: { provider: "auth0", status: "NOT_STARTED" } },
+              kycCases: {
+                create: { provider: "auth0", status: "NOT_STARTED" },
+              },
             },
           });
 
           const prefix = "USER:" + user.id;
           for (const [suffix, accountName, type] of [
             ["CASH", "Deposited cash", LedgerAccountType.USER_DEPOSITED_CASH],
-            ["PROMO", "Promotional credits", LedgerAccountType.USER_PROMOTIONAL_CREDIT],
-            ["INVESTED", "Invested funds", LedgerAccountType.USER_INVESTED_FUNDS],
+            [
+              "PROMO",
+              "Promotional credits",
+              LedgerAccountType.USER_PROMOTIONAL_CREDIT,
+            ],
+            [
+              "INVESTED",
+              "Invested funds",
+              LedgerAccountType.USER_INVESTED_FUNDS,
+            ],
             ["COMMISSION", "Commissions", LedgerAccountType.USER_COMMISSION],
-            ["RESERVE", "Withdrawal reserve", LedgerAccountType.USER_WITHDRAWAL_RESERVE],
+            [
+              "RESERVE",
+              "Withdrawal reserve",
+              LedgerAccountType.USER_WITHDRAWAL_RESERVE,
+            ],
           ] as const) {
             await tx.ledgerAccount.create({
               data: {
@@ -145,7 +270,10 @@ export class UserService {
         { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
       );
     } catch (error) {
-      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === "P2002"
+      ) {
         const identity = await this.prisma.identityProviderAccount.findUnique({
           where: {
             provider_providerSubject: {
@@ -163,9 +291,14 @@ export class UserService {
   async registerMock(raw: unknown) {
     this.providers.assertSandbox("kyc");
     const input = registerSchema.parse(raw);
-    const existing = await this.prisma.user.findUnique({ where: { email: input.email } });
-    if (existing) throw new ConflictException("An account already exists for this email.");
-    const role = await this.prisma.role.findUniqueOrThrow({ where: { name: Roles.INVESTOR } });
+    const existing = await this.prisma.user.findUnique({
+      where: { email: input.email },
+    });
+    if (existing)
+      throw new ConflictException("An account already exists for this email.");
+    const role = await this.prisma.role.findUniqueOrThrow({
+      where: { name: Roles.INVESTOR },
+    });
     return this.prisma.$transaction(async (tx) => {
       const user = await tx.user.create({
         data: {
@@ -177,7 +310,10 @@ export class UserService {
             create: { firstName: input.firstName, lastName: input.lastName },
           },
           identities: {
-            create: { provider: "mock", providerSubject: "mock:" + input.email.toLowerCase() },
+            create: {
+              provider: "mock",
+              providerSubject: "mock:" + input.email.toLowerCase(),
+            },
           },
           wallet: { create: {} },
           roles: { create: { roleId: role.id } },
@@ -188,10 +324,18 @@ export class UserService {
       const prefix = "USER:" + user.id;
       for (const [suffix, name, type] of [
         ["CASH", "Deposited cash", LedgerAccountType.USER_DEPOSITED_CASH],
-        ["PROMO", "Promotional credits", LedgerAccountType.USER_PROMOTIONAL_CREDIT],
+        [
+          "PROMO",
+          "Promotional credits",
+          LedgerAccountType.USER_PROMOTIONAL_CREDIT,
+        ],
         ["INVESTED", "Invested funds", LedgerAccountType.USER_INVESTED_FUNDS],
         ["COMMISSION", "Commissions", LedgerAccountType.USER_COMMISSION],
-        ["RESERVE", "Withdrawal reserve", LedgerAccountType.USER_WITHDRAWAL_RESERVE],
+        [
+          "RESERVE",
+          "Withdrawal reserve",
+          LedgerAccountType.USER_WITHDRAWAL_RESERVE,
+        ],
       ] as const) {
         await tx.ledgerAccount.create({
           data: {
@@ -218,7 +362,9 @@ export class UserService {
       where: { verifiedIndividualHash: fingerprint, id: { not: userId } },
     });
     if (duplicate) {
-      throw new ConflictException("This verified individual is already linked to an account.");
+      throw new ConflictException(
+        "This verified individual is already linked to an account.",
+      );
     }
     return this.prisma.$transaction(async (tx) => {
       const latest = await tx.kycCase.findFirst({
@@ -229,7 +375,11 @@ export class UserService {
       const kyc = latest
         ? await tx.kycCase.update({
             where: { id: latest.id },
-            data: { status: "VERIFIED", submittedAt: new Date(), reviewedAt: new Date() },
+            data: {
+              status: "VERIFIED",
+              submittedAt: new Date(),
+              reviewedAt: new Date(),
+            },
           })
         : await tx.kycCase.create({
             data: {
@@ -277,7 +427,9 @@ export class UserService {
         await tx.wallet.update({
           where: { userId },
           data: {
-            promotionalAvailableCentavos: { increment: config.signupBonusCentavos },
+            promotionalAvailableCentavos: {
+              increment: config.signupBonusCentavos,
+            },
             projectionVersion: { increment: 1 },
           },
         });

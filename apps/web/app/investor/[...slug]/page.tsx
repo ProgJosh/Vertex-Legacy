@@ -11,6 +11,7 @@ import {
 import {
   EnableMfaButton,
   KycDemoForm,
+  KycReviewForm,
   PayoutAccountForm,
   ProfileForm,
   SupportCaseForm,
@@ -191,12 +192,13 @@ export default async function InvestorSection({
   if (section === "kyc") {
     const me = await apiGet<Me>("/me");
     const status = me.kycCases[0]?.status ?? "NOT_STARTED";
+    const productionIdentity = process.env.AUTH_PROVIDER === "auth0" || process.env.NODE_ENV === "production";
     return (
       <>
-        <Heading eyebrow="Identity verification" title="Know your customer review." description="Identity, document, sanctions, and risk checks belong behind a licensed KYC provider adapter." />
+        <Heading eyebrow="Identity verification" title="Submit your account for review." description="An authorized administrator reviews identity status before purchases and withdrawals are enabled." />
         <section className="panel">
-          <div className="panel-header"><div><h2 style={{ fontSize: "1.5rem" }}>Current review</h2><p>Mock KYC is available only in local development.</p></div><Status value={status} /></div>
-          {status === "VERIFIED" ? <div className="success-banner">Identity verification is complete.</div> : <KycDemoForm />}
+          <div className="panel-header"><div><h2 style={{ fontSize: "1.5rem" }}>Current review</h2><p>Review status is shared with the admin approval queue.</p></div><Status value={status} /></div>
+          {status === "VERIFIED" ? <div className="success-banner">Identity verification is complete.</div> : productionIdentity ? <KycReviewForm status={status} /> : <KycDemoForm />}
         </section>
       </>
     );
@@ -254,7 +256,7 @@ export default async function InvestorSection({
         <section className="success-banner">
           <h2 style={{ fontSize: "1.5rem" }}>Authorization recorded</h2>
           <p>Reference: {id ?? "Unavailable"}</p>
-          <p>The request is pending, scheduled, or under review according to its server status. No live payout is enabled in this sandbox.</p>
+          <p>The request is pending, scheduled, or under review. Finance sends approved GCash or Maya payouts manually and a second authorized reviewer confirms settlement.</p>
           <Button asChild variant="secondary"><Link href="/investor/transactions">View transaction history</Link></Button>
         </section>
       </>
@@ -267,7 +269,7 @@ export default async function InvestorSection({
       <>
         <Heading eyebrow="Withdraw" title="Authorize a controlled payout request." description="KYC, MFA, balance, minimum, operating hours, fee, and destination are checked on the server." />
         <section className="panel">
-          <WithdrawalForm payoutAccounts={me.payoutAccounts} minimumCentavos={config.minimumWithdrawalCentavos} />
+          <WithdrawalForm payoutAccounts={me.payoutAccounts} minimumCentavos={config.minimumWithdrawalCentavos} requiresLocalMfaCode={process.env.AUTH_PROVIDER === "mock" && process.env.NODE_ENV !== "production"} />
         </section>
       </>
     );
@@ -286,7 +288,10 @@ export default async function InvestorSection({
   }
 
   if (section === "plans" && slug[1]) {
-    const plan = await optionalApiGet<Plan | null>("/public/plans/" + slug[1], null);
+    const [plan, me] = await Promise.all([
+      optionalApiGet<Plan | null>("/public/plans/" + slug[1], null),
+      apiGet<Me>("/me"),
+    ]);
     if (!plan) notFound();
     return (
       <>
@@ -308,7 +313,7 @@ export default async function InvestorSection({
           </section>
           <aside className="panel">
             <div className="panel-header"><div><h2 style={{ fontSize: "1.5rem" }}>Subscribe</h2><p>Uses deposited cash only.</p></div></div>
-            <PlanSubscribeForm slug={plan.slug} minimumCentavos={plan.minimumCentavos} maximumCentavos={plan.maximumCentavos} />
+            <PlanSubscribeForm slug={plan.slug} minimumCentavos={plan.minimumCentavos} maximumCentavos={plan.maximumCentavos} availableCentavos={me.wallet.depositedAvailableCentavos} kycVerified={me.kycCases[0]?.status === "VERIFIED"} />
           </aside>
         </div>
       </>
@@ -376,7 +381,7 @@ export default async function InvestorSection({
   if (section === "invite") {
     const data = await apiGet<{ referralCode: string; programStatement: string; referrals: Array<{ id: string; status: string }> }>("/me/referrals");
     const origin = process.env.WEB_ORIGIN ?? "https://vertex-legacy.joshua27emmanuel30.workers.dev";
-    return <><Heading eyebrow="Invite friends" title="Share your personal invitation." description="Invite people you know without promising income or returns. Attribution is recorded only after the invited person signs in and accepts." /><section className="invite-hero"><div><p className="eyebrow">Your invitation code</p><h2>{data.referralCode}</h2><p>{data.programStatement}</p><InviteLink code={data.referralCode} origin={origin} /></div><div className="invite-mark" aria-hidden="true">V</div></section><section className="metrics"><div className="metric"><small>Invited members</small><strong>{data.referrals.length}</strong></div><div className="metric"><small>Verified links</small><strong>{data.referrals.filter((item) => ["VERIFIED", "ELIGIBLE"].includes(item.status)).length}</strong></div></section><p className="disclosure">Self-referrals, duplicate identities, deceptive promotion and deposit-based commissions are prohibited.</p></>;
+    return <><Heading eyebrow="Invite friends" title="Share your personal invitation link." description="Copy the website link and send it to a friend. They create an account with email and password, and the referral is linked automatically after sign-in." /><section className="invite-hero"><div><p className="eyebrow">Personal invitation</p><h2>{data.referralCode}</h2><p>{data.programStatement}</p><InviteLink code={data.referralCode} origin={origin} /></div><div className="invite-mark" aria-hidden="true">V</div></section><section className="metrics"><div className="metric"><small>Invited members</small><strong>{data.referrals.length}</strong></div><div className="metric"><small>Verified links</small><strong>{data.referrals.filter((item) => ["VERIFIED", "ELIGIBLE"].includes(item.status)).length}</strong></div></section><p className="disclosure">Self-referrals, duplicate identities, deceptive promotion and deposit-based commissions are prohibited.</p></>;
   }
 
   if (section === "invitations") {
@@ -445,11 +450,12 @@ export default async function InvestorSection({
 
   if (section === "security") {
     const me = await apiGet<Me>("/me");
+    const providerManaged = process.env.AUTH_PROVIDER === "auth0" || process.env.NODE_ENV === "production";
     return (
       <>
         <Heading eyebrow="Security settings" title="Protect sensitive actions." description="Production MFA, recovery, breach detection, and sessions are controlled by Auth0 or Cognito." />
         <div className="dashboard-grid">
-          <section className="panel"><div className="panel-header"><div><h2 style={{ fontSize: "1.5rem" }}>Multi-factor authentication</h2><p>Required for withdrawals and sensitive changes.</p></div><Status value={me.mfaEnabledAt ? "ACTIVE" : "PENDING"} /></div>{me.mfaEnabledAt ? <div className="success-banner">MFA is enabled.</div> : <EnableMfaButton />}</section>
+          <section className="panel"><div className="panel-header"><div><h2 style={{ fontSize: "1.5rem" }}>Multi-factor authentication</h2><p>Required for withdrawals and sensitive changes.</p></div><Status value={me.mfaEnabledAt ? "ACTIVE" : "PENDING"} /></div>{me.mfaEnabledAt ? <div className="success-banner">MFA verification is recorded.</div> : providerManaged ? <div className="empty-state">Enable MFA in Auth0, then sign out and sign in using the second factor. Vertex records only the verified MFA claim—never the one-time code.</div> : <EnableMfaButton />}</section>
           <aside className="panel"><h2 style={{ fontSize: "1.5rem" }}>Active sessions</h2>{me.sessions.length ? me.sessions.map((session) => <div key={session.id} style={{ padding: "10px 0", borderBottom: "1px solid var(--line)" }}>{session.deviceLabel ?? "Unlabelled device"}<div className="muted">{new Date(session.lastSeenAt).toLocaleString("en-PH")}</div></div>) : <div className="empty-state">No provider sessions are recorded locally.</div>}</aside>
         </div>
       </>
@@ -461,7 +467,7 @@ export default async function InvestorSection({
     return (
       <>
         <Heading eyebrow="Payout accounts" title="Verified destinations only." description="Full account identifiers are not displayed or written to logs." />
-        <div className="dashboard-grid"><section className="panel"><h2 style={{ fontSize: "1.5rem" }}>Linked accounts</h2>{me.payoutAccounts.length ? me.payoutAccounts.map((account) => <article key={account.id} style={{ padding: "14px 0", borderBottom: "1px solid var(--line)" }}><strong>{account.institutionName}</strong><p className="muted">{account.accountHolderName} · {account.maskedIdentifier}</p><Status value={account.verifiedAt ? "VERIFIED" : "PENDING"} /></article>) : <div className="empty-state">No payout accounts linked.</div>}</section><aside className="panel"><h2 style={{ fontSize: "1.5rem" }}>Add sandbox account</h2><PayoutAccountForm /></aside></div>
+        <div className="dashboard-grid"><section className="panel"><h2 style={{ fontSize: "1.5rem" }}>Linked accounts</h2>{me.payoutAccounts.length ? me.payoutAccounts.map((account) => <article key={account.id} style={{ padding: "14px 0", borderBottom: "1px solid var(--line)" }}><strong>{account.institutionName}</strong><p className="muted">{account.accountHolderName} · {account.maskedIdentifier}</p><Status value={account.verifiedAt ? "VERIFIED" : "PENDING"} /></article>) : <div className="empty-state">No payout accounts linked.</div>}</section><aside className="panel"><h2 style={{ fontSize: "1.5rem" }}>Add payout wallet</h2><PayoutAccountForm /></aside></div>
       </>
     );
   }

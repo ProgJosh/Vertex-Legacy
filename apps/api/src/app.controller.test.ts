@@ -22,7 +22,10 @@ const validPlan = {
   reason: "Regression test plan creation",
 } as const;
 
-function controllerWith(prisma: Record<string, unknown>, audit = { record: vi.fn() }) {
+function controllerWith(
+  prisma: Record<string, unknown>,
+  audit = { record: vi.fn() },
+) {
   const registry = new PaymentProviderRegistry();
   return {
     controller: new AppController(
@@ -67,10 +70,12 @@ describe("admin plan schedule validation", () => {
   });
 
   it("persists the daily payout and matching total return as integer centavos", async () => {
-    const create = vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({
-      id: "plan-id",
-      ...data,
-    }));
+    const create = vi.fn(
+      async ({ data }: { data: Record<string, unknown> }) => ({
+        id: "plan-id",
+        ...data,
+      }),
+    );
     const prisma = { plan: { create } };
     const { controller, audit } = controllerWith(prisma);
 
@@ -85,5 +90,74 @@ describe("admin plan schedule validation", () => {
       }),
     });
     expect(audit.record).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("production identity review submission", () => {
+  it("moves a not-started case into the admin review queue", async () => {
+    const existing = {
+      id: "kyc-id",
+      userId: "user-id",
+      status: "NOT_STARTED",
+    };
+    const submitted = {
+      ...existing,
+      provider: "manual-review",
+      status: "PENDING",
+      submittedAt: new Date(),
+    };
+    const findFirst = vi.fn().mockResolvedValue(existing);
+    const update = vi.fn().mockResolvedValue(submitted);
+    const create = vi.fn();
+    const prisma = { kycCase: { findFirst, update, create } };
+    const { controller, audit } = controllerWith(prisma);
+
+    await expect(
+      controller.submitKycForReview({ id: "user-id" } as never),
+    ).resolves.toEqual(submitted);
+
+    expect(update).toHaveBeenCalledWith({
+      where: { id: "kyc-id" },
+      data: expect.objectContaining({
+        provider: "manual-review",
+        status: "PENDING",
+        submittedAt: expect.any(Date),
+      }),
+    });
+    expect(create).not.toHaveBeenCalled();
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actorUserId: "user-id",
+        action: "KYC_SUBMIT",
+        resourceId: "kyc-id",
+        outcome: "SUCCESS",
+      }),
+    );
+  });
+
+  it("is idempotent while a case is already pending", async () => {
+    const pending = {
+      id: "kyc-id",
+      userId: "user-id",
+      status: "PENDING",
+    };
+    const update = vi.fn();
+    const create = vi.fn();
+    const prisma = {
+      kycCase: {
+        findFirst: vi.fn().mockResolvedValue(pending),
+        update,
+        create,
+      },
+    };
+    const { controller, audit } = controllerWith(prisma);
+
+    await expect(
+      controller.submitKycForReview({ id: "user-id" } as never),
+    ).resolves.toEqual(pending);
+
+    expect(update).not.toHaveBeenCalled();
+    expect(create).not.toHaveBeenCalled();
+    expect(audit.record).not.toHaveBeenCalled();
   });
 });

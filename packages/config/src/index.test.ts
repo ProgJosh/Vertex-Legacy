@@ -4,9 +4,13 @@ import {
   companyVipPlans,
   loadEnvironment,
   manualPaymentChannels,
+  platformSeed,
 } from "./index";
 
 describe("authoritative company schedules", () => {
+  it("configures the requested ₱25 registration credit", () => {
+    expect(platformSeed.signupBonusCentavos).toBe(2_500n);
+  });
   it("contains the ten published VIP tiers in ascending price order", () => {
     expect(companyVipPlans).toHaveLength(10);
     expect(companyVipPlans.map((plan) => plan.name)).toEqual(
@@ -25,8 +29,16 @@ describe("authoritative company schedules", () => {
       1_500_000n,
     ]);
     expect(companyVipPlans.map((plan) => plan.dailyPayoutCentavos)).toEqual([
-      2_000n, 3_500n, 5_500n, 8_500n, 17_500n,
-      42_000n, 78_000n, 100_000n, 110_000n, 118_000n,
+      2_000n,
+      3_500n,
+      5_500n,
+      8_500n,
+      17_500n,
+      42_000n,
+      78_000n,
+      100_000n,
+      110_000n,
+      118_000n,
     ]);
   });
 
@@ -55,50 +67,61 @@ describe("authoritative company schedules", () => {
 
 describe("manual payment safety", () => {
   it("keeps destination details hidden until the manual channel is explicitly enabled", () => {
-    expect(manualPaymentChannels({
-      PAYMENT_PROVIDER: "manual",
-      MANUAL_PAYMENTS_ENABLED: "false",
-      GCASH_DESTINATION_NUMBER: "09171234567",
-      MAYA_DESTINATION_NUMBER: "09981234567",
-    })).toEqual([]);
+    expect(
+      manualPaymentChannels({
+        PAYMENT_PROVIDER: "manual",
+        MANUAL_PAYMENTS_ENABLED: "false",
+        GCASH_DESTINATION_NUMBER: "09171234567",
+        MAYA_DESTINATION_NUMBER: "09981234567",
+      }),
+    ).toEqual([]);
   });
 
   it("publishes only GCash and Maya after both destination numbers are configured", () => {
-    expect(manualPaymentChannels({
-      PAYMENT_PROVIDER: "manual",
-      MANUAL_PAYMENTS_ENABLED: "true",
-      GCASH_DESTINATION_NUMBER: "09171234567",
-      MAYA_DESTINATION_NUMBER: "09981234567",
-    })).toEqual([
-      expect.objectContaining({ code: "GCASH", qrAssetPath: "/payments/gcash-qr.jpg" }),
+    expect(
+      manualPaymentChannels({
+        PAYMENT_PROVIDER: "manual",
+        MANUAL_PAYMENTS_ENABLED: "true",
+        GCASH_DESTINATION_NUMBER: "09171234567",
+        MAYA_DESTINATION_NUMBER: "09981234567",
+      }),
+    ).toEqual([
+      expect.objectContaining({
+        code: "GCASH",
+        qrAssetPath: "/payments/gcash-qr.jpg",
+      }),
       expect.objectContaining({ code: "MAYA", qrAssetPath: null }),
     ]);
   });
 
   it("refuses to boot an enabled manual provider without both destinations", () => {
-    expect(() => loadEnvironment({
-      NODE_ENV: "production",
-      DATABASE_URL: "postgresql://example.invalid/vertex",
-      AUTH_PROVIDER: "auth0",
-      PAYMENT_PROVIDER: "manual",
-      PAYOUT_PROVIDER: "licensed",
-      KYC_PROVIDER: "licensed",
-      WEB_ORIGIN: "https://vertex.example",
-      MANUAL_PAYMENTS_ENABLED: "true",
-      GCASH_DESTINATION_NUMBER: "09171234567",
-    })).toThrow("MAYA_DESTINATION_NUMBER");
+    expect(() =>
+      loadEnvironment({
+        NODE_ENV: "production",
+        DATABASE_URL: "postgresql://example.invalid/vertex",
+        AUTH_PROVIDER: "auth0",
+        PAYMENT_PROVIDER: "manual",
+        PAYOUT_PROVIDER: "licensed",
+        KYC_PROVIDER: "licensed",
+        WEB_ORIGIN: "https://vertex.example",
+        MANUAL_PAYMENTS_ENABLED: "true",
+        GCASH_DESTINATION_NUMBER: "09171234567",
+      }),
+    ).toThrow("MAYA_DESTINATION_NUMBER");
   });
 
   it("refuses to enable manual payouts without an encryption key", () => {
-    expect(() => loadEnvironment({
-      NODE_ENV: "production",
-      DATABASE_URL: "postgresql://example.invalid/vertex",
-      AUTH_PROVIDER: "auth0",
-      PAYMENT_PROVIDER: "licensed",
-      PAYOUT_PROVIDER: "manual",
-      KYC_PROVIDER: "licensed",
-      WEB_ORIGIN: "https://vertex.example",
-      MANUAL_PAYOUTS_ENABLED: "true",
-    })).toThrow("PAYOUT_ACCOUNT_ENCRYPTION_KEY");
+    expect(() =>
+      loadEnvironment({
+        NODE_ENV: "production",
+        DATABASE_URL: "postgresql://example.invalid/vertex",
+        AUTH_PROVIDER: "auth0",
+        PAYMENT_PROVIDER: "licensed",
+        PAYOUT_PROVIDER: "manual",
+        KYC_PROVIDER: "licensed",
+        WEB_ORIGIN: "https://vertex.example",
+        MANUAL_PAYOUTS_ENABLED: "true",
+      }),
+    ).toThrow("PAYOUT_ACCOUNT_ENCRYPTION_KEY");
   });
 });

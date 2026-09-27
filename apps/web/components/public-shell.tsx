@@ -33,10 +33,14 @@ export function PublicFooter() {
       <div className="container footer-grid">
         <div>
           <Brand />
-          <p>Sandbox platform. Live money movement is not enabled.</p>
+          <p>
+            GCash and Maya cash-ins are credited only after finance verifies the
+            real transfer.
+          </p>
         </div>
         <nav aria-label="Legal">
-          <Link href="/terms">Terms</Link> · <Link href="/privacy">Privacy</Link> ·{" "}
+          <Link href="/terms">Terms</Link> ·{" "}
+          <Link href="/privacy">Privacy</Link> ·{" "}
           <Link href="/contact">Support</Link>
         </nav>
       </div>

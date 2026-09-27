@@ -2,45 +2,82 @@ import { z } from "zod";
 
 export const environmentSchema = z
   .object({
-    NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
+    NODE_ENV: z
+      .enum(["development", "test", "production"])
+      .default("development"),
     DATABASE_URL: z.string().min(1),
     REDIS_URL: z.string().default("redis://localhost:6379"),
     AUTH_PROVIDER: z.enum(["mock", "auth0", "cognito"]).default("mock"),
-    PAYMENT_PROVIDER: z.enum(["mock", "manual", "licensed", "paymongo", "xendit"]).default("mock"),
-    PAYOUT_PROVIDER: z.enum(["mock", "manual", "licensed", "paymongo", "xendit"]).default("mock"),
+    PAYMENT_PROVIDER: z
+      .enum(["mock", "manual", "licensed", "paymongo", "xendit"])
+      .default("mock"),
+    PAYOUT_PROVIDER: z
+      .enum(["mock", "manual", "licensed", "paymongo", "xendit"])
+      .default("mock"),
     KYC_PROVIDER: z.enum(["mock", "licensed"]).default("mock"),
     WEB_ORIGIN: z.string().url().default("http://localhost:3000"),
     API_PORT: z.coerce.number().int().positive().default(4000),
     MANUAL_PAYMENTS_ENABLED: z.enum(["true", "false"]).default("false"),
     MANUAL_PAYOUTS_ENABLED: z.enum(["true", "false"]).default("false"),
-    GCASH_DESTINATION_NUMBER: z.string().regex(/^09\d{9}$/).optional(),
-    MAYA_DESTINATION_NUMBER: z.string().regex(/^09\d{9}$/).optional(),
-    PAYOUT_ACCOUNT_ENCRYPTION_KEY: z.string().regex(/^[A-Fa-f0-9]{64}$/).optional(),
+    GCASH_DESTINATION_NUMBER: z
+      .string()
+      .regex(/^09\d{9}$/)
+      .optional(),
+    MAYA_DESTINATION_NUMBER: z
+      .string()
+      .regex(/^09\d{9}$/)
+      .optional(),
+    PAYOUT_ACCOUNT_ENCRYPTION_KEY: z
+      .string()
+      .regex(/^[A-Fa-f0-9]{64}$/)
+      .optional(),
+    BOOTSTRAP_ADMIN_EMAIL: z.string().email().optional(),
   })
   .superRefine((env, ctx) => {
     if (
       env.NODE_ENV === "production" &&
-      [env.AUTH_PROVIDER, env.PAYMENT_PROVIDER, env.PAYOUT_PROVIDER, env.KYC_PROVIDER].includes("mock")
+      [
+        env.AUTH_PROVIDER,
+        env.PAYMENT_PROVIDER,
+        env.PAYOUT_PROVIDER,
+        env.KYC_PROVIDER,
+      ].includes("mock")
     ) {
       ctx.addIssue({
         code: "custom",
-        message: "Mock identity and financial providers are forbidden in production.",
+        message:
+          "Mock identity and financial providers are forbidden in production.",
       });
     }
-    if (env.PAYMENT_PROVIDER === "manual" && env.MANUAL_PAYMENTS_ENABLED === "true") {
+    if (
+      env.PAYMENT_PROVIDER === "manual" &&
+      env.MANUAL_PAYMENTS_ENABLED === "true"
+    ) {
       if (!env.GCASH_DESTINATION_NUMBER) {
-        ctx.addIssue({ code: "custom", path: ["GCASH_DESTINATION_NUMBER"], message: "Required when manual payments are enabled." });
+        ctx.addIssue({
+          code: "custom",
+          path: ["GCASH_DESTINATION_NUMBER"],
+          message: "Required when manual payments are enabled.",
+        });
       }
       if (!env.MAYA_DESTINATION_NUMBER) {
-        ctx.addIssue({ code: "custom", path: ["MAYA_DESTINATION_NUMBER"], message: "Required when manual payments are enabled." });
+        ctx.addIssue({
+          code: "custom",
+          path: ["MAYA_DESTINATION_NUMBER"],
+          message: "Required when manual payments are enabled.",
+        });
       }
     }
-    if (env.PAYOUT_PROVIDER === "manual" && env.MANUAL_PAYOUTS_ENABLED === "true") {
+    if (
+      env.PAYOUT_PROVIDER === "manual" &&
+      env.MANUAL_PAYOUTS_ENABLED === "true"
+    ) {
       if (!env.PAYOUT_ACCOUNT_ENCRYPTION_KEY) {
         ctx.addIssue({
           code: "custom",
           path: ["PAYOUT_ACCOUNT_ENCRYPTION_KEY"],
-          message: "A 32-byte hexadecimal key is required when manual payouts are enabled.",
+          message:
+            "A 32-byte hexadecimal key is required when manual payouts are enabled.",
         });
       }
     }
@@ -53,7 +90,9 @@ export type Environment = z.infer<typeof environmentSchema>;
  * that never carries a trailing slash or an explicit default port, so comparing
  * it against a raw configured value rejects every legitimate request.
  */
-export function normalizeOrigin(value: string | null | undefined): string | null {
+export function normalizeOrigin(
+  value: string | null | undefined,
+): string | null {
   if (!value) return null;
   try {
     return new URL(value.trim()).origin;
@@ -67,7 +106,9 @@ export function normalizeOrigin(value: string | null | undefined): string | null
  * process with an actionable message instead of surfacing later as a stream of
  * 503 responses from individual endpoints.
  */
-export function loadEnvironment(source: NodeJS.ProcessEnv = process.env): Environment {
+export function loadEnvironment(
+  source: NodeJS.ProcessEnv = process.env,
+): Environment {
   const result = environmentSchema.safeParse(source);
   if (result.success) return result.data;
   const details = result.error.issues
@@ -77,7 +118,7 @@ export function loadEnvironment(source: NodeJS.ProcessEnv = process.env): Enviro
 }
 
 export const platformSeed = {
-  signupBonusCentavos: 3_000n,
+  signupBonusCentavos: 2_500n,
   minimumDepositCentavos: 25_000n,
   minimumWithdrawalCentavos: 15_000n,
   withdrawalFeeBasisPoints: 500n,
@@ -90,7 +131,10 @@ export const platformSeed = {
 } as const;
 
 export function manualPaymentChannels(source: NodeJS.ProcessEnv = process.env) {
-  if (source.PAYMENT_PROVIDER !== "manual" || source.MANUAL_PAYMENTS_ENABLED !== "true") {
+  if (
+    source.PAYMENT_PROVIDER !== "manual" ||
+    source.MANUAL_PAYMENTS_ENABLED !== "true"
+  ) {
     return [];
   }
   return [
@@ -116,16 +160,76 @@ export function manualPaymentChannels(source: NodeJS.ProcessEnv = process.env) {
  * cannot ship a schedule whose arithmetic contradicts itself.
  */
 export const companyVipPlans = [
-  { name: "VIP 1", priceCentavos: 25_000n, dailyPayoutCentavos: 2_000n, cycleDays: 60, totalReturnCentavos: 120_000n },
-  { name: "VIP 2", priceCentavos: 30_000n, dailyPayoutCentavos: 3_500n, cycleDays: 60, totalReturnCentavos: 210_000n },
-  { name: "VIP 3", priceCentavos: 50_000n, dailyPayoutCentavos: 5_500n, cycleDays: 60, totalReturnCentavos: 330_000n },
-  { name: "VIP 4", priceCentavos: 100_000n, dailyPayoutCentavos: 8_500n, cycleDays: 60, totalReturnCentavos: 510_000n },
-  { name: "VIP 5", priceCentavos: 200_000n, dailyPayoutCentavos: 17_500n, cycleDays: 60, totalReturnCentavos: 1_050_000n },
-  { name: "VIP 6", priceCentavos: 500_000n, dailyPayoutCentavos: 42_000n, cycleDays: 60, totalReturnCentavos: 2_520_000n },
-  { name: "VIP 7", priceCentavos: 1_000_000n, dailyPayoutCentavos: 78_000n, cycleDays: 60, totalReturnCentavos: 4_680_000n },
-  { name: "VIP 8", priceCentavos: 1_300_000n, dailyPayoutCentavos: 100_000n, cycleDays: 60, totalReturnCentavos: 6_000_000n },
-  { name: "VIP 9", priceCentavos: 1_450_000n, dailyPayoutCentavos: 110_000n, cycleDays: 60, totalReturnCentavos: 6_600_000n },
-  { name: "VIP 10", priceCentavos: 1_500_000n, dailyPayoutCentavos: 118_000n, cycleDays: 60, totalReturnCentavos: 7_080_000n },
+  {
+    name: "VIP 1",
+    priceCentavos: 25_000n,
+    dailyPayoutCentavos: 2_000n,
+    cycleDays: 60,
+    totalReturnCentavos: 120_000n,
+  },
+  {
+    name: "VIP 2",
+    priceCentavos: 30_000n,
+    dailyPayoutCentavos: 3_500n,
+    cycleDays: 60,
+    totalReturnCentavos: 210_000n,
+  },
+  {
+    name: "VIP 3",
+    priceCentavos: 50_000n,
+    dailyPayoutCentavos: 5_500n,
+    cycleDays: 60,
+    totalReturnCentavos: 330_000n,
+  },
+  {
+    name: "VIP 4",
+    priceCentavos: 100_000n,
+    dailyPayoutCentavos: 8_500n,
+    cycleDays: 60,
+    totalReturnCentavos: 510_000n,
+  },
+  {
+    name: "VIP 5",
+    priceCentavos: 200_000n,
+    dailyPayoutCentavos: 17_500n,
+    cycleDays: 60,
+    totalReturnCentavos: 1_050_000n,
+  },
+  {
+    name: "VIP 6",
+    priceCentavos: 500_000n,
+    dailyPayoutCentavos: 42_000n,
+    cycleDays: 60,
+    totalReturnCentavos: 2_520_000n,
+  },
+  {
+    name: "VIP 7",
+    priceCentavos: 1_000_000n,
+    dailyPayoutCentavos: 78_000n,
+    cycleDays: 60,
+    totalReturnCentavos: 4_680_000n,
+  },
+  {
+    name: "VIP 8",
+    priceCentavos: 1_300_000n,
+    dailyPayoutCentavos: 100_000n,
+    cycleDays: 60,
+    totalReturnCentavos: 6_000_000n,
+  },
+  {
+    name: "VIP 9",
+    priceCentavos: 1_450_000n,
+    dailyPayoutCentavos: 110_000n,
+    cycleDays: 60,
+    totalReturnCentavos: 6_600_000n,
+  },
+  {
+    name: "VIP 10",
+    priceCentavos: 1_500_000n,
+    dailyPayoutCentavos: 118_000n,
+    cycleDays: 60,
+    totalReturnCentavos: 7_080_000n,
+  },
 ] as const;
 
 /**
@@ -140,7 +244,10 @@ export const companyCommissionLevels = [
 ] as const;
 
 for (const plan of companyVipPlans) {
-  if (plan.dailyPayoutCentavos * BigInt(plan.cycleDays) !== plan.totalReturnCentavos) {
+  if (
+    plan.dailyPayoutCentavos * BigInt(plan.cycleDays) !==
+    plan.totalReturnCentavos
+  ) {
     throw new Error(
       "Company VIP schedule is inconsistent for " +
         plan.name +
