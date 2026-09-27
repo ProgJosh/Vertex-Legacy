@@ -3,6 +3,10 @@ import { Brand } from "./brand";
 import { Button } from "./ui/button";
 
 export function PublicHeader() {
+  const signupHref =
+    process.env.AUTH_PROVIDER === "auth0" || process.env.NODE_ENV === "production"
+      ? "/auth/login?screen_hint=signup&returnTo=%2Finvestor%2Fonboarding"
+      : "/register";
   return (
     <header className="public-header">
       <div className="container public-header-inner">
@@ -19,7 +23,7 @@ export function PublicHeader() {
             <Link href="/login">Sign in</Link>
           </Button>
           <Button asChild size="small">
-            <Link href="/register">Open account</Link>
+            <a href={signupHref}>Open account</a>
           </Button>
         </div>
       </div>

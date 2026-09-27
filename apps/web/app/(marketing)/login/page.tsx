@@ -33,7 +33,7 @@ export default function LoginPage() {
           </Suspense>
         )}
         <p>
-          New to Vertex? <a href="/register">Open an account</a>
+          New to Vertex? <a href={useAuth0 ? "/auth/login?screen_hint=signup&returnTo=%2Finvestor%2Fonboarding" : "/register"}>Open an account</a>
         </p>
       </section>
     </div>

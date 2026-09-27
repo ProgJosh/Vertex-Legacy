@@ -32,6 +32,10 @@ type Plan = {
 };
 
 export default async function LandingPage() {
+  const signupHref =
+    process.env.AUTH_PROVIDER === "auth0" || process.env.NODE_ENV === "production"
+      ? "/auth/login?screen_hint=signup&returnTo=%2Finvestor%2Fonboarding"
+      : "/register";
   const [config, plans] = await Promise.all([
     optionalApiGet<Config | null>("/public/config", null),
     optionalApiGet<Plan[]>("/public/plans", []),
@@ -51,9 +55,9 @@ export default async function LandingPage() {
             </p>
             <div className="landing-actions">
               <Button asChild>
-                <Link href="/register">
+                <a href={signupHref}>
                   Begin verification <ArrowRight size={16} aria-hidden="true" />
-                </Link>
+                </a>
               </Button>
               <Button asChild variant="secondary">
                 <Link href="/how-it-works">Review the process</Link>
