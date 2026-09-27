@@ -10,6 +10,20 @@ Railway service for the NestJS API and PostgreSQL database. The current producti
 - Auth0 logout URL: `https://vertex-legacy.joshua27emmanuel30.workers.dev`
 - Auth0 web origin: `https://vertex-legacy.joshua27emmanuel30.workers.dev`
 
+## Render build command
+
+Render has pnpm available through Corepack, but its `/usr/bin` directory is read-only. Do not run `corepack enable` in the Render dashboard. Use:
+
+```sh
+corepack pnpm install --frozen-lockfile && corepack pnpm db:generate && corepack pnpm --filter @vertex/api build
+```
+
+Use this start command:
+
+```sh
+corepack pnpm --filter @vertex/database migrate:deploy && corepack pnpm --filter @vertex/database seed && corepack pnpm --filter @vertex/api start
+```
+
 ## Safety boundary
 
 Production keeps money movement fail-closed by default. `PAYMENT_PROVIDER=manual` selects the
