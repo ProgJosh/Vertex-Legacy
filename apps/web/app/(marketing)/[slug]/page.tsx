@@ -43,7 +43,7 @@ const pages: Record<string, PublicPage> = {
       "The experience is intentionally sequential: verify, secure, fund through a provider, assess a plan, authorize, and monitor.",
     blocks: [
       { title: "1. Verify", body: "Create your identity-provider account, verify contact details, complete KYC, and enable MFA." },
-      { title: "2. Fund", body: "Create a cash-in request above the configured minimum. Only a signed provider webhook can complete it." },
+      { title: "2. Fund", body: "Choose an enabled channel, create a cash-in request, send the exact amount, and submit the wallet reference. Finance must match the official receiving-wallet record before credit." },
       { title: "3. Assess", body: "Review plan objectives, risk, fees, duration, capacity, eligibility, documents, and illustrative targets." },
       { title: "4. Authorize", body: "Submit an idempotent subscription or withdrawal request. The API validates funds, policy, time, and identity state." },
       { title: "5. Monitor", body: "Review wallet composition, holdings, ledger-derived transactions, commissions, notifications, and downloadable statements." },
@@ -68,7 +68,7 @@ const pages: Record<string, PublicPage> = {
     intro:
       "Current values are administered centrally and displayed in the product before requests are finalized.",
     blocks: [
-      { title: "Cash-in minimum", body: "The active configuration applies before a provider checkout is created. Provider charges, if any, must be disclosed separately." },
+      { title: "Cash-in minimum", body: "The active configuration applies before transfer instructions are shown. Only the exact destination displayed inside the signed-in cash-in page may be used." },
       { title: "Withdrawal minimum", body: "The active minimum applies to withdrawable funds. Promotional balances remain separate by default." },
       { title: "Withdrawal fee", body: "The configured charge is labelled Withdrawal fee. The gross request, fee, and net payout are shown before MFA." },
       { title: "Operating window", body: "Requests outside Asia/Manila operating hours are blocked or clearly scheduled according to the active administrative policy." },
@@ -82,8 +82,8 @@ const pages: Record<string, PublicPage> = {
       { title: "Is the promotional credit cash?", body: "No. It is separately ledgered and non-withdrawable by default." },
       { title: "Are plan returns guaranteed?", body: "No. Targets and illustrations may not be achieved, and capital can be lost." },
       { title: "When does a referral earn commission?", body: "Only when an enabled rule matches a documented qualifying service-fee event. A deposit alone never qualifies." },
-      { title: "Can the browser change my balance?", body: "No. The API posts balanced ledger entries after policy and provider verification, then refreshes the wallet projection." },
-      { title: "Is live money enabled?", body: "No. Local payment, payout, and KYC actions are explicit simulations." },
+      { title: "Can the browser change my balance?", body: "No. A submitted reference stays pending until finance independently matches the official receiving-wallet record. Only the API can post the balanced ledger entry." },
+      { title: "Are manual transfers always available?", body: "No. GCash and Maya instructions remain disabled until approved business-wallet accounts and required operational authorization are configured." },
       { title: "How are errors corrected?", body: "Posted ledger records stay immutable. Corrections use linked reversal transactions." },
     ],
   },

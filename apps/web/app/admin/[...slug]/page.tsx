@@ -35,8 +35,49 @@ export default async function AdminSection({ params }: { params: Promise<{ slug:
   }
 
   if (section === "deposits") {
-    const deposits = await optionalApiGet<Array<{ id: string; amountCentavos: string; provider: string; providerReference: string | null; status: string; createdAt: string; user: { email: string; profile: { firstName: string; lastName: string } | null } }>>("/admin/deposits", []);
-    return <><Heading eyebrow="Deposit monitoring" title="Provider funding activity." description="Wallet credit occurs only after signed, deduplicated server-to-server confirmation." /><section className="panel">{deposits.length ? <div className="table-scroll"><table className="data-table"><thead><tr><th>User</th><th>Provider reference</th><th>Amount</th><th>Status</th><th>Created</th></tr></thead><tbody>{deposits.map((item) => <tr key={item.id}><td>{item.user.profile ? item.user.profile.firstName + " " + item.user.profile.lastName : item.user.email}</td><td>{item.providerReference ?? "Pending"}</td><td>{formatPhp(item.amountCentavos)}</td><td><Status value={item.status} /></td><td>{new Date(item.createdAt).toLocaleString("en-PH")}</td></tr>)}</tbody></table></div> : <div className="empty-state">No deposit activity is available.</div>}</section></>;
+    const deposits = await optionalApiGet<Array<{
+      id: string;
+      amountCentavos: string;
+      provider: string;
+      providerReference: string | null;
+      paymentChannel: string | null;
+      senderName: string | null;
+      senderMobileLast4: string | null;
+      submittedAt: string | null;
+      status: string;
+      createdAt: string;
+      user: { email: string; profile: { firstName: string; lastName: string } | null };
+    }>>("/admin/deposits", []);
+    return (
+      <>
+        <Heading
+          eyebrow="Deposit review"
+          title="Match wallet transfers before crediting funds."
+          description="Compare the exact amount, channel, reference, sender details and transaction time against the official GCash or Maya business-wallet record. Screenshots alone are not proof."
+        />
+        <section className="panel">
+          {deposits.length ? (
+            <div className="table-scroll">
+              <table className="data-table">
+                <thead><tr><th>User</th><th>Transfer details</th><th>Amount</th><th>Status</th><th>Created / submitted</th><th>Controlled actions</th></tr></thead>
+                <tbody>
+                  {deposits.map((item) => (
+                    <tr key={item.id}>
+                      <td>{item.user.profile ? item.user.profile.firstName + " " + item.user.profile.lastName : item.user.email}<div className="muted">{item.user.email}</div></td>
+                      <td>{item.paymentChannel ?? item.provider}<div className="muted">Reference: {item.providerReference?.replace(/^MANUAL:[^:]+:/, "") ?? "Not submitted"}</div>{item.senderName && <div className="muted">Sender: {item.senderName} · ••• {item.senderMobileLast4}</div>}</td>
+                      <td>{formatPhp(item.amountCentavos)}</td>
+                      <td><Status value={item.status} /></td>
+                      <td>{new Date(item.createdAt).toLocaleString("en-PH")}<div className="muted">{item.submittedAt ? "Submitted " + new Date(item.submittedAt).toLocaleString("en-PH") : "Awaiting transfer"}</div></td>
+                      <td>{item.status === "AWAITING_REVIEW" ? <div style={{ display: "grid", gap: 10 }}><ReasonedAction path={"admin/deposits/" + item.id + "/approve"} label="Confirm wallet match" /><ReasonedAction path={"admin/deposits/" + item.id + "/reject"} label="Reject unmatched transfer" variant="danger" /></div> : <span className="muted">No action available</span>}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : <div className="empty-state">No deposit activity is available.</div>}
+        </section>
+      </>
+    );
   }
 
   if (section === "withdrawals") {

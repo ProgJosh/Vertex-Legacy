@@ -6,11 +6,14 @@ export const environmentSchema = z
     DATABASE_URL: z.string().min(1),
     REDIS_URL: z.string().default("redis://localhost:6379"),
     AUTH_PROVIDER: z.enum(["mock", "auth0", "cognito"]).default("mock"),
-    PAYMENT_PROVIDER: z.enum(["mock", "licensed", "paymongo", "xendit"]).default("mock"),
+    PAYMENT_PROVIDER: z.enum(["mock", "manual", "licensed", "paymongo", "xendit"]).default("mock"),
     PAYOUT_PROVIDER: z.enum(["mock", "licensed", "paymongo", "xendit"]).default("mock"),
     KYC_PROVIDER: z.enum(["mock", "licensed"]).default("mock"),
     WEB_ORIGIN: z.string().url().default("http://localhost:3000"),
     API_PORT: z.coerce.number().int().positive().default(4000),
+    MANUAL_PAYMENTS_ENABLED: z.enum(["true", "false"]).default("false"),
+    GCASH_DESTINATION_NUMBER: z.string().regex(/^09\d{9}$/).optional(),
+    MAYA_DESTINATION_NUMBER: z.string().regex(/^09\d{9}$/).optional(),
   })
   .superRefine((env, ctx) => {
     if (
@@ -21,6 +24,14 @@ export const environmentSchema = z
         code: "custom",
         message: "Mock identity and financial providers are forbidden in production.",
       });
+    }
+    if (env.PAYMENT_PROVIDER === "manual" && env.MANUAL_PAYMENTS_ENABLED === "true") {
+      if (!env.GCASH_DESTINATION_NUMBER) {
+        ctx.addIssue({ code: "custom", path: ["GCASH_DESTINATION_NUMBER"], message: "Required when manual payments are enabled." });
+      }
+      if (!env.MAYA_DESTINATION_NUMBER) {
+        ctx.addIssue({ code: "custom", path: ["MAYA_DESTINATION_NUMBER"], message: "Required when manual payments are enabled." });
+      }
     }
   });
 
@@ -66,6 +77,26 @@ export const platformSeed = {
   currency: "PHP",
   promotionalCreditsWithdrawable: false,
 } as const;
+
+export function manualPaymentChannels(source: NodeJS.ProcessEnv = process.env) {
+  if (source.PAYMENT_PROVIDER !== "manual" || source.MANUAL_PAYMENTS_ENABLED !== "true") {
+    return [];
+  }
+  return [
+    {
+      code: "GCASH" as const,
+      name: "GCash",
+      destinationNumber: source.GCASH_DESTINATION_NUMBER ?? "",
+      qrAssetPath: "/payments/gcash-qr.jpg",
+    },
+    {
+      code: "MAYA" as const,
+      name: "Maya",
+      destinationNumber: source.MAYA_DESTINATION_NUMBER ?? "",
+      qrAssetPath: null,
+    },
+  ];
+}
 
 /**
  * Company VIP plan schedule, transcribed from the client-supplied plan sheet in

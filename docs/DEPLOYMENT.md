@@ -10,11 +10,11 @@ Railway service for the NestJS API and PostgreSQL database. The current producti
 
 ## Safety boundary
 
-Production uses `PAYMENT_PROVIDER=licensed`, `PAYOUT_PROVIDER=licensed`, and
-`KYC_PROVIDER=licensed` as fail-closed placeholders. Those values disable mock money
-movement; they do not implement a live provider. Do not accept real deposits or payouts until
-a licensed adapter, signed webhooks, reconciliation, operational approval, and the required
-legal/compliance work are complete.
+Production keeps money movement fail-closed by default. `PAYMENT_PROVIDER=manual` selects the
+GCash/Maya review workflow, but destination details are not exposed and requests are rejected
+until `MANUAL_PAYMENTS_ENABLED=true`. Enable it only for approved business/merchant wallets after
+the required legal, compliance, reconciliation, and operational approvals. Payout and KYC remain
+`licensed` placeholders until their approved integrations are available.
 
 Never place Auth0 client/session secrets, provider credentials, database URLs, or webhook
 secrets in Git, `wrangler.jsonc`, Docker build arguments, logs, or `NEXT_PUBLIC_*`
@@ -48,7 +48,10 @@ through Railway's encrypted variable store:
 | `AUTH_PROVIDER` | `auth0` |
 | `AUTH0_DOMAIN` | Auth0 tenant domain |
 | `AUTH0_AUDIENCE` | `https://api.vertex-legacy.com` |
-| `PAYMENT_PROVIDER` | `licensed` until a real adapter is implemented |
+| `PAYMENT_PROVIDER` | `manual` for the reviewed GCash/Maya workflow |
+| `MANUAL_PAYMENTS_ENABLED` | `false` until approved business wallets and finance operations are ready |
+| `GCASH_DESTINATION_NUMBER` | approved GCash for Business destination; exposed to signed-in users when enabled |
+| `MAYA_DESTINATION_NUMBER` | approved Maya Business destination; exposed to signed-in users when enabled |
 | `PAYOUT_PROVIDER` | `licensed` until a real adapter is implemented |
 | `KYC_PROVIDER` | `licensed` until a real adapter is implemented |
 
@@ -67,7 +70,24 @@ Verify after deployment:
 
     curl.exe --silent --show-error --include https://api-production-8c96.up.railway.app/v1/health
 
-Expected: HTTP 200 with `status: "ok"` and `moneyMovement: "disabled"`.
+Expected before activation: HTTP 200 with `status: "ok"` and `moneyMovement: "disabled"`.
+After deliberate activation, expect `moneyMovement: "manual-review"`.
+
+### Manual GCash/Maya cash-in controls
+
+1. User selects only GCash or Maya and creates an idempotent pending intent.
+2. The API returns the configured destination. Only GCash receives the versioned QR asset.
+3. User sends the exact amount and submits the wallet reference, sender name, and last four digits.
+4. Deposit enters `AWAITING_REVIEW`; no balance or ledger entry changes.
+5. A user with `deposit:review` compares the submission to the official receiving-wallet record.
+6. Approval atomically claims the request, posts one balanced idempotent ledger transaction, and
+   updates the wallet projection. Rejection credits nothing. Both decisions require reasons and
+   create audit records.
+
+Never approve from a screenshot alone. Match the receiving account, amount, reference, sender,
+and timestamp against the official business-wallet transaction history. Personal Maya accounts
+must not be used for business collection without Maya's written agreement; use GCash/Maya merchant
+accounts and retain settlement/reconciliation records.
 
 ## Cloudflare web
 

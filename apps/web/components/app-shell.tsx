@@ -72,11 +72,13 @@ export function AppShell({
   mode,
   user,
   logoutHref,
+  environmentLabel = "Sandbox environment · no live money movement",
   children,
 }: {
   mode: "investor" | "admin";
   user: { name: string; email: string };
   logoutHref?: string | undefined;
+  environmentLabel?: string | undefined;
   children: React.ReactNode;
 }) {
   const path = usePathname();
@@ -138,7 +140,7 @@ export function AppShell({
           >
             <Menu size={18} />
           </button>
-          <span className="environment-label">Sandbox environment · no live money movement</span>
+          <span className="environment-label">{environmentLabel}</span>
           {logoutHref ? (
             <Button asChild variant="secondary" size="small">
               <a href={logoutHref}>Sign out</a>

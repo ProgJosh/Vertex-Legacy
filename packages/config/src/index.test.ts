@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { companyCommissionLevels, companyVipPlans } from "./index";
+import {
+  companyCommissionLevels,
+  companyVipPlans,
+  loadEnvironment,
+  manualPaymentChannels,
+} from "./index";
 
 describe("authoritative company schedules", () => {
   it("contains the ten published VIP tiers in ascending price order", () => {
@@ -41,5 +46,42 @@ describe("authoritative company schedules", () => {
       { level: 2, rateBasisPoints: 200 },
       { level: 3, rateBasisPoints: 100 },
     ]);
+  });
+});
+
+describe("manual payment safety", () => {
+  it("keeps destination details hidden until the manual channel is explicitly enabled", () => {
+    expect(manualPaymentChannels({
+      PAYMENT_PROVIDER: "manual",
+      MANUAL_PAYMENTS_ENABLED: "false",
+      GCASH_DESTINATION_NUMBER: "09171234567",
+      MAYA_DESTINATION_NUMBER: "09981234567",
+    })).toEqual([]);
+  });
+
+  it("publishes only GCash and Maya after both destination numbers are configured", () => {
+    expect(manualPaymentChannels({
+      PAYMENT_PROVIDER: "manual",
+      MANUAL_PAYMENTS_ENABLED: "true",
+      GCASH_DESTINATION_NUMBER: "09171234567",
+      MAYA_DESTINATION_NUMBER: "09981234567",
+    })).toEqual([
+      expect.objectContaining({ code: "GCASH", qrAssetPath: "/payments/gcash-qr.jpg" }),
+      expect.objectContaining({ code: "MAYA", qrAssetPath: null }),
+    ]);
+  });
+
+  it("refuses to boot an enabled manual provider without both destinations", () => {
+    expect(() => loadEnvironment({
+      NODE_ENV: "production",
+      DATABASE_URL: "postgresql://example.invalid/vertex",
+      AUTH_PROVIDER: "auth0",
+      PAYMENT_PROVIDER: "manual",
+      PAYOUT_PROVIDER: "licensed",
+      KYC_PROVIDER: "licensed",
+      WEB_ORIGIN: "https://vertex.example",
+      MANUAL_PAYMENTS_ENABLED: "true",
+      GCASH_DESTINATION_NUMBER: "09171234567",
+    })).toThrow("MAYA_DESTINATION_NUMBER");
   });
 });

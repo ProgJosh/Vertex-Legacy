@@ -22,9 +22,11 @@ services:
       - key: AUTH_PROVIDER
         value: mock
       - key: PAYMENT_PROVIDER
-        value: xendit
+        value: manual
       - key: PAYOUT_PROVIDER
-        value: xendit
+        value: licensed
+      - key: MANUAL_PAYMENTS_ENABLED
+        value: "false"
       - key: KYC_PROVIDER
         value: licensed
       - key: API_PORT

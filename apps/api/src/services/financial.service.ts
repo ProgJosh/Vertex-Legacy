@@ -5,6 +5,7 @@ import {
   Inject,
   Injectable,
   NotFoundException,
+  ServiceUnavailableException,
 } from "@nestjs/common";
 import { LedgerAccountType, MoneyRequestStatus } from "@prisma/client";
 import {
@@ -17,6 +18,7 @@ import {
   createWithdrawalSchema,
   getWithdrawalWindowStatus,
   parseCentavos,
+  submitManualDepositSchema,
   TransitionError,
   withdrawableBalance,
   withdrawalQuoteSchema,
@@ -61,6 +63,15 @@ export class FinancialService {
   async createDeposit(userId: string, raw: unknown) {
     const input = createDepositSchema.parse(raw);
     const amount = parseCentavos(input.amount);
+    const manual = process.env.PAYMENT_PROVIDER === "manual";
+    if (manual && process.env.MANUAL_PAYMENTS_ENABLED !== "true") {
+      throw new ServiceUnavailableException(
+        "Manual GCash and Maya deposits are awaiting approved business-wallet activation.",
+      );
+    }
+    if (manual && !input.paymentChannel) {
+      throw new BadRequestException("Select GCash or Maya before creating a cash-in request.");
+    }
     const config = await this.config.active();
     if (amount < config.minimumDepositCentavos) {
       throw new BadRequestException(
@@ -71,7 +82,11 @@ export class FinancialService {
       where: { idempotencyKey: input.idempotencyKey },
     });
     if (prior) {
-      if (prior.userId !== userId || prior.amountCentavos !== amount) {
+      if (
+        prior.userId !== userId ||
+        prior.amountCentavos !== amount ||
+        (manual && prior.paymentChannel !== input.paymentChannel)
+      ) {
         throw new ConflictException("Idempotency key was already used for a different request.");
       }
       return this.serialize(prior);
@@ -86,10 +101,12 @@ export class FinancialService {
           userId,
           amountCentavos: amount,
           idempotencyKey: input.idempotencyKey,
-          provider: "mock",
-          status: MoneyRequestStatus.PENDING,
+          provider: manual ? "manual-" + input.paymentChannel!.toLowerCase() : "mock",
+          paymentChannel: manual ? input.paymentChannel! : null,
+          status: manual ? MoneyRequestStatus.AWAITING_PROVIDER : MoneyRequestStatus.PENDING,
         },
       });
+      if (manual) return this.serialize(created);
       const checkout = await this.providers.createDepositCheckout({
         depositId: created.id,
         amountCentavos: amount,
@@ -110,6 +127,182 @@ export class FinancialService {
           },
         }),
       );
+    });
+  }
+
+  async submitManualDeposit(userId: string, depositId: string, raw: unknown) {
+    if (
+      process.env.PAYMENT_PROVIDER !== "manual" ||
+      process.env.MANUAL_PAYMENTS_ENABLED !== "true"
+    ) {
+      throw new ServiceUnavailableException("Manual wallet deposits are not enabled.");
+    }
+    const input = submitManualDepositSchema.parse(raw);
+    const normalizedReference = input.paymentReference.trim().toUpperCase();
+
+    return this.prisma.$transaction(async (tx) => {
+      const deposit = await tx.deposit.findUnique({ where: { id: depositId } });
+      if (!deposit || deposit.userId !== userId) throw new NotFoundException("Deposit not found.");
+      if (!deposit.paymentChannel || !deposit.provider.startsWith("manual-")) {
+        throw new ConflictException("This deposit is not a manual wallet transfer.");
+      }
+      const providerReference =
+        "MANUAL:" + deposit.paymentChannel + ":" + normalizedReference;
+      if (
+        deposit.status === MoneyRequestStatus.AWAITING_REVIEW &&
+        deposit.providerReference === providerReference
+      ) {
+        return this.serialize(deposit);
+      }
+      if (deposit.status !== MoneyRequestStatus.AWAITING_PROVIDER) {
+        throw new ConflictException("This deposit can no longer accept payment details.");
+      }
+      const duplicate = await tx.deposit.findFirst({
+        where: { providerReference, id: { not: deposit.id } },
+        select: { id: true },
+      });
+      if (duplicate) {
+        throw new ConflictException("That transaction reference was already submitted.");
+      }
+      const claimed = await tx.deposit.updateMany({
+        where: {
+          id: deposit.id,
+          status: MoneyRequestStatus.AWAITING_PROVIDER,
+        },
+        data: {
+          providerReference,
+          senderName: input.senderName,
+          senderMobileLast4: input.senderMobileLast4,
+          submittedAt: new Date(),
+          status: MoneyRequestStatus.AWAITING_REVIEW,
+        },
+      });
+      if (claimed.count !== 1) {
+        const current = await tx.deposit.findUniqueOrThrow({ where: { id: deposit.id } });
+        if (
+          current.status === MoneyRequestStatus.AWAITING_REVIEW &&
+          current.providerReference === providerReference
+        ) {
+          return this.serialize(current);
+        }
+        throw new ConflictException("Payment details were already submitted for this deposit.");
+      }
+      const submitted = await tx.deposit.findUniqueOrThrow({ where: { id: deposit.id } });
+      await tx.notification.create({
+        data: {
+          userId,
+          type: "DEPOSIT_REVIEW_PENDING",
+          title: "Cash-in submitted for verification",
+          body: "Finance must match the wallet transaction before your balance can be credited.",
+          data: { depositId: deposit.id, paymentChannel: deposit.paymentChannel },
+        },
+      });
+      return this.serialize(submitted);
+    });
+  }
+
+  async approveManualDeposit(depositId: string, reviewerId: string, reason: string) {
+    return this.prisma.$transaction(async (tx) => {
+      const deposit = await tx.deposit.findUnique({ where: { id: depositId } });
+      if (!deposit) throw new NotFoundException("Deposit not found.");
+      if (!deposit.provider.startsWith("manual-")) {
+        throw new ConflictException("Only manual wallet deposits can be reviewed here.");
+      }
+      if (deposit.status === MoneyRequestStatus.COMPLETED) return this.serialize(deposit);
+      if (deposit.status !== MoneyRequestStatus.AWAITING_REVIEW || !deposit.providerReference) {
+        throw new ConflictException("Only submitted deposits awaiting review can be approved.");
+      }
+      const claimed = await tx.deposit.updateMany({
+        where: { id: deposit.id, status: MoneyRequestStatus.AWAITING_REVIEW },
+        data: { status: MoneyRequestStatus.PROCESSING },
+      });
+      if (claimed.count !== 1) throw new ConflictException("Deposit is already being reviewed.");
+
+      const platformCash = await tx.ledgerAccount.findUniqueOrThrow({
+        where: { code: "PLATFORM:CASH" },
+      });
+      const userCash = await tx.ledgerAccount.findFirstOrThrow({
+        where: { userId: deposit.userId, type: LedgerAccountType.USER_DEPOSITED_CASH },
+      });
+      const posted = await this.ledger.post(tx, {
+        reference: "DEP-" + deposit.id.slice(0, 8).toUpperCase(),
+        idempotencyKey: "manual-deposit:" + deposit.id,
+        kind: "MANUAL_DEPOSIT_SETTLEMENT",
+        description: `${deposit.paymentChannel ?? "Wallet"} transfer verified by finance`,
+        metadata: {
+          depositId: deposit.id,
+          providerReference: deposit.providerReference,
+          reviewerId,
+        },
+        lines: [
+          { accountId: platformCash.id, direction: "DEBIT", amountCentavos: deposit.amountCentavos },
+          { accountId: userCash.id, direction: "CREDIT", amountCentavos: deposit.amountCentavos },
+        ],
+      });
+      const completed = await tx.deposit.update({
+        where: { id: deposit.id },
+        data: {
+          status: MoneyRequestStatus.COMPLETED,
+          completedAt: new Date(),
+          ledgerTransactionId: posted.id,
+          reviewedBy: reviewerId,
+          reviewReason: reason,
+        },
+      });
+      await tx.wallet.update({
+        where: { userId: deposit.userId },
+        data: {
+          depositedAvailableCentavos: { increment: deposit.amountCentavos },
+          projectionVersion: { increment: 1 },
+        },
+      });
+      await tx.notification.create({
+        data: {
+          userId: deposit.userId,
+          type: "DEPOSIT_COMPLETED",
+          title: "Cash-in verified",
+          body: "Finance matched your wallet transfer and credited your deposited balance.",
+          data: { depositId: deposit.id },
+        },
+      });
+      return this.serialize(completed);
+    });
+  }
+
+  async rejectManualDeposit(depositId: string, reviewerId: string, reason: string) {
+    return this.prisma.$transaction(async (tx) => {
+      const deposit = await tx.deposit.findUnique({ where: { id: depositId } });
+      if (!deposit) throw new NotFoundException("Deposit not found.");
+      if (!deposit.provider.startsWith("manual-")) {
+        throw new ConflictException("Only manual wallet deposits can be reviewed here.");
+      }
+      if (deposit.status !== MoneyRequestStatus.AWAITING_REVIEW) {
+        throw new ConflictException("Only submitted deposits awaiting review can be rejected.");
+      }
+      const claimed = await tx.deposit.updateMany({
+        where: {
+          id: deposit.id,
+          status: MoneyRequestStatus.AWAITING_REVIEW,
+        },
+        data: {
+          status: MoneyRequestStatus.REJECTED,
+          failureReason: reason,
+          reviewedBy: reviewerId,
+          reviewReason: reason,
+        },
+      });
+      if (claimed.count !== 1) throw new ConflictException("Deposit is already being reviewed.");
+      const rejected = await tx.deposit.findUniqueOrThrow({ where: { id: deposit.id } });
+      await tx.notification.create({
+        data: {
+          userId: deposit.userId,
+          type: "DEPOSIT_REJECTED",
+          title: "Cash-in could not be verified",
+          body: "Finance could not match the submitted transfer. Review the reason before trying again.",
+          data: { depositId: deposit.id, reason },
+        },
+      });
+      return this.serialize(rejected);
     });
   }
 

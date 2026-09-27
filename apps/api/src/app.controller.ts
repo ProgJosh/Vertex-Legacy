@@ -35,6 +35,7 @@ import { WebhookEvent } from "./services/payment-providers";
 import { LedgerAccountType, MoneyRequestStatus } from "@prisma/client";
 import { parseCentavos } from "@vertex/types";
 import { randomUUID } from "node:crypto";
+import { manualPaymentChannels } from "@vertex/config";
 
 const reasonSchema = z.object({ reason: z.string().min(8).max(500) });
 
@@ -58,10 +59,17 @@ export class AppController {
     const sandboxMoneyMovement =
       process.env.PAYMENT_PROVIDER === "mock" &&
       process.env.NODE_ENV !== "production";
+    const manualMoneyMovement =
+      process.env.PAYMENT_PROVIDER === "manual" &&
+      process.env.MANUAL_PAYMENTS_ENABLED === "true";
     return {
       status: "ok",
       service: "vertex-legacy-api",
-      moneyMovement: sandboxMoneyMovement ? "sandbox" : "disabled",
+      moneyMovement: sandboxMoneyMovement
+        ? "sandbox"
+        : manualMoneyMovement
+          ? "manual-review"
+          : "disabled",
     };
   }
 
@@ -80,7 +88,26 @@ export class AppController {
       withdrawalOutsideWindowMode: config.withdrawalOutsideWindowMode,
       defaultCurrency: config.defaultCurrency,
       promotionalCreditsWithdrawable: config.promotionalCreditsWithdrawable,
+      manualPaymentsEnabled:
+        process.env.PAYMENT_PROVIDER === "manual" &&
+        process.env.MANUAL_PAYMENTS_ENABLED === "true",
     };
+  }
+
+  @RequirePermissions(Permissions.DEPOSIT_CREATE_SELF)
+  @Get("deposits/channels")
+  depositChannels() {
+    return manualPaymentChannels();
+  }
+
+  @RequirePermissions(Permissions.DEPOSIT_CREATE_SELF)
+  @Post("deposits/:id/manual-submit")
+  submitManualDeposit(
+    @CurrentUser() current: AuthenticatedUser,
+    @Param("id") id: string,
+    @Body() body: unknown,
+  ) {
+    return this.financial.submitManualDeposit(current.id, id, body);
   }
 
   @Public()
@@ -615,7 +642,7 @@ export class AppController {
     });
   }
 
-  @RequirePermissions(Permissions.WITHDRAWAL_REVIEW)
+  @RequirePermissions(Permissions.DEPOSIT_REVIEW)
   @Get("admin/deposits")
   adminDeposits() {
     return this.prisma.deposit.findMany({
@@ -623,6 +650,52 @@ export class AppController {
       orderBy: { createdAt: "desc" },
       take: 200,
     });
+  }
+
+  @RequirePermissions(Permissions.DEPOSIT_REVIEW)
+  @Post("admin/deposits/:id/approve")
+  async approveDeposit(
+    @CurrentUser() current: AuthenticatedUser,
+    @Param("id") id: string,
+    @Body() body: unknown,
+  ) {
+    const { reason } = reasonSchema.parse(body);
+    const before = await this.prisma.deposit.findUniqueOrThrow({ where: { id } });
+    const updated = await this.financial.approveManualDeposit(id, current.id, reason);
+    await this.audit.record({
+      actorUserId: current.id,
+      action: "MANUAL_DEPOSIT_APPROVE",
+      resourceType: "Deposit",
+      resourceId: id,
+      reason,
+      outcome: "SUCCESS",
+      before: { status: before.status, providerReference: before.providerReference },
+      after: { status: updated.status, ledgerTransactionId: updated.ledgerTransactionId },
+    });
+    return updated;
+  }
+
+  @RequirePermissions(Permissions.DEPOSIT_REVIEW)
+  @Post("admin/deposits/:id/reject")
+  async rejectDeposit(
+    @CurrentUser() current: AuthenticatedUser,
+    @Param("id") id: string,
+    @Body() body: unknown,
+  ) {
+    const { reason } = reasonSchema.parse(body);
+    const before = await this.prisma.deposit.findUniqueOrThrow({ where: { id } });
+    const updated = await this.financial.rejectManualDeposit(id, current.id, reason);
+    await this.audit.record({
+      actorUserId: current.id,
+      action: "MANUAL_DEPOSIT_REJECT",
+      resourceType: "Deposit",
+      resourceId: id,
+      reason,
+      outcome: "SUCCESS",
+      before: { status: before.status, providerReference: before.providerReference },
+      after: { status: updated.status },
+    });
+    return updated;
   }
 
   @RequirePermissions(Permissions.WITHDRAWAL_REVIEW)

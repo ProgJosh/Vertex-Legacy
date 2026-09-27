@@ -2,6 +2,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation } from "@tanstack/react-query";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
@@ -23,9 +24,38 @@ const amountSchema = z.object({
   amount: z.string().regex(/^(0|[1-9]\d*)(?:\.\d{1,2})?$/, "Enter a valid peso amount."),
 });
 
-export function CashInForm({ minimumCentavos }: { minimumCentavos: string }) {
+type ManualPaymentChannel = {
+  code: "GCASH" | "MAYA";
+  name: string;
+  destinationNumber: string;
+  qrAssetPath: string | null;
+};
+
+type DepositResult = {
+  id: string;
+  amountCentavos: string;
+  provider: string;
+  paymentChannel: "GCASH" | "MAYA" | null;
+  status: string;
+};
+
+export function CashInForm({
+  minimumCentavos,
+  manualPaymentsEnabled = false,
+  paymentChannels = [],
+}: {
+  minimumCentavos: string;
+  manualPaymentsEnabled?: boolean;
+  paymentChannels?: ManualPaymentChannel[];
+}) {
   const router = useRouter();
-  const [deposit, setDeposit] = useState<{ id: string; amountCentavos: string } | null>(null);
+  const [deposit, setDeposit] = useState<DepositResult | null>(null);
+  const [paymentChannel, setPaymentChannel] = useState<"GCASH" | "MAYA">(
+    paymentChannels[0]?.code ?? "GCASH",
+  );
+  const [paymentReference, setPaymentReference] = useState("");
+  const [senderName, setSenderName] = useState("");
+  const [senderMobileLast4, setSenderMobileLast4] = useState("");
   const form = useForm<z.infer<typeof amountSchema>>({
     resolver: zodResolver(amountSchema),
     defaultValues: { amount: "" },
@@ -38,7 +68,10 @@ export function CashInForm({ minimumCentavos }: { minimumCentavos: string }) {
           "content-type": "application/json",
           "idempotency-key": crypto.randomUUID(),
         },
-        body: JSON.stringify(values),
+        body: JSON.stringify({
+          ...values,
+          ...(manualPaymentsEnabled ? { paymentChannel } : {}),
+        }),
       }),
     onSuccess: setDeposit,
   });
@@ -54,6 +87,103 @@ export function CashInForm({ minimumCentavos }: { minimumCentavos: string }) {
       router.refresh();
     },
   });
+
+  const submitManual = useMutation({
+    mutationFn: () =>
+      jsonRequest("deposits/" + deposit!.id + "/manual-submit", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ paymentReference, senderName, senderMobileLast4 }),
+      }),
+    onSuccess: (result: DepositResult) => {
+      setDeposit(result);
+      router.refresh();
+    },
+  });
+
+  const selectedChannel = paymentChannels.find((item) => item.code === paymentChannel);
+
+  if (deposit?.provider.startsWith("manual-") && deposit.status === "AWAITING_REVIEW") {
+    return (
+      <div className="success-banner" role="status">
+        <h3>Transfer submitted for verification</h3>
+        <p>
+          Your wallet has not been credited yet. Finance will match the destination account,
+          exact amount and transaction reference before posting {formatPhp(deposit.amountCentavos)}.
+        </p>
+        <Button variant="secondary" onClick={() => router.push("/investor/transactions")}>
+          View transactions
+        </Button>
+      </div>
+    );
+  }
+
+  if (deposit?.provider.startsWith("manual-")) {
+    const channel = paymentChannels.find((item) => item.code === deposit.paymentChannel);
+    return (
+      <div className="manual-payment-step">
+        <div className="manual-payment-heading">
+          <div>
+            <p className="eyebrow">Step 2 of 2</p>
+            <h3>Send the exact amount with {channel?.name ?? deposit.paymentChannel}</h3>
+          </div>
+          <span className="status status-warning">Awaiting transfer</span>
+        </div>
+        <div className="manual-payment-destination">
+          <div>
+            <small>Amount to send</small>
+            <strong>{formatPhp(deposit.amountCentavos)}</strong>
+          </div>
+          <div>
+            <small>{channel?.name ?? deposit.paymentChannel} destination</small>
+            <strong>{channel?.destinationNumber}</strong>
+          </div>
+        </div>
+        {deposit.paymentChannel === "GCASH" && channel?.qrAssetPath && (
+          <figure className="gcash-qr">
+            <Image
+              src={channel.qrAssetPath}
+              alt="GCash payment QR supplied by Vertex Legacy"
+              width={671}
+              height={650}
+              priority
+            />
+            <figcaption>Scan only with GCash, then verify the displayed recipient before sending.</figcaption>
+          </figure>
+        )}
+        <div className="disclosure">
+          Do not continue if the wallet shows a different destination. Keep the wallet receipt.
+          Submission does not prove payment and cannot credit your balance automatically.
+        </div>
+        <div className="field">
+          <label htmlFor="manual-reference">Transaction reference</label>
+          <input id="manual-reference" value={paymentReference} onChange={(event) => setPaymentReference(event.target.value)} maxLength={100} autoComplete="off" />
+        </div>
+        <div className="form-grid">
+          <div className="field">
+            <label htmlFor="manual-sender-name">Sender account name</label>
+            <input id="manual-sender-name" value={senderName} onChange={(event) => setSenderName(event.target.value)} maxLength={120} autoComplete="name" />
+          </div>
+          <div className="field">
+            <label htmlFor="manual-sender-last4">Sender mobile last 4 digits</label>
+            <input id="manual-sender-last4" value={senderMobileLast4} onChange={(event) => setSenderMobileLast4(event.target.value.replace(/\D/g, "").slice(0, 4))} inputMode="numeric" maxLength={4} />
+          </div>
+        </div>
+        {submitManual.error && <p className="error-banner" role="alert">{submitManual.error.message}</p>}
+        <Button
+          onClick={() => submitManual.mutate()}
+          disabled={
+            submitManual.isPending ||
+            paymentReference.trim().length < 6 ||
+            senderName.trim().length < 2 ||
+            senderMobileLast4.length !== 4
+          }
+        >
+          {submitManual.isPending ? "Submitting…" : "I sent the payment — submit for review"}
+        </Button>
+      </div>
+    );
+  }
 
   if (deposit) {
     return (
@@ -71,8 +201,31 @@ export function CashInForm({ minimumCentavos }: { minimumCentavos: string }) {
     );
   }
 
+  if (!manualPaymentsEnabled && paymentChannels.length === 0 && process.env.NODE_ENV === "production") {
+    return (
+      <div className="empty-state">
+        GCash and Maya cash-in are temporarily unavailable while the approved business wallets are
+        being activated. Do not send money outside this verified workflow.
+      </div>
+    );
+  }
+
   return (
     <form onSubmit={form.handleSubmit((values) => create.mutate(values))} noValidate>
+      {manualPaymentsEnabled && (
+        <fieldset className="payment-channel-picker">
+          <legend>Choose payment channel</legend>
+          <div className="payment-channel-grid">
+            {paymentChannels.map((channel) => (
+              <label className={paymentChannel === channel.code ? "payment-channel active" : "payment-channel"} key={channel.code}>
+                <input type="radio" name="payment-channel" value={channel.code} checked={paymentChannel === channel.code} onChange={() => setPaymentChannel(channel.code)} />
+                <span>{channel.name}</span>
+                <small>{channel.code === "GCASH" ? "QR or mobile transfer" : "Mobile transfer"}</small>
+              </label>
+            ))}
+          </div>
+        </fieldset>
+      )}
       <div className="field">
         <label htmlFor="cash-in-amount">Cash-in amount (PHP)</label>
         <input
@@ -83,7 +236,8 @@ export function CashInForm({ minimumCentavos }: { minimumCentavos: string }) {
           {...form.register("amount")}
         />
         <span id="cash-in-help" className="muted">
-          Minimum {formatPhp(minimumCentavos)}. Final credit requires a signed provider webhook.
+          Minimum {formatPhp(minimumCentavos)}. Final credit requires finance to match the real
+          wallet transaction.
         </span>
         {form.formState.errors.amount && (
           <span className="field-error">{form.formState.errors.amount.message}</span>
@@ -91,7 +245,11 @@ export function CashInForm({ minimumCentavos }: { minimumCentavos: string }) {
       </div>
       {create.error && <p className="error-banner" role="alert">{create.error.message}</p>}
       <Button type="submit" disabled={create.isPending}>
-        {create.isPending ? "Creating checkout…" : "Continue to sandbox provider"}
+        {create.isPending
+          ? "Creating request…"
+          : manualPaymentsEnabled
+            ? `Continue with ${selectedChannel?.name ?? paymentChannel}`
+            : "Continue to sandbox provider"}
       </Button>
     </form>
   );

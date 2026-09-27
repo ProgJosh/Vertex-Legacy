@@ -333,6 +333,12 @@ model Deposit {
   idempotencyKey      String             @unique
   provider            String
   providerReference   String?            @unique
+  paymentChannel      String?
+  senderName          String?
+  senderMobileLast4   String?
+  submittedAt         DateTime?
+  reviewedBy          String?            @db.Uuid
+  reviewReason        String?
   checkoutUrl         String?
   ledgerTransactionId String?            @db.Uuid
   completedAt         DateTime?

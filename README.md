@@ -2,7 +2,7 @@
 
 Vertex Legacy is a sandbox-first investment operations platform built as a TypeScript modular monolith. It includes a responsive public site, investor application, finance/compliance workflows, administration console, PostgreSQL double-entry ledger, provider adapters, background worker, OpenAPI documentation, tests, and an AWS production baseline.
 
-Live money movement is **not enabled**. Local KYC, deposits, and payouts are explicit simulations. Production requires licensed providers, credentials, regulatory approval, legal disclosures, security review, and reconciliation certification.
+Live money movement is **not enabled by default**. Local KYC, deposits, and payouts remain explicit simulations. A feature-gated manual GCash/Maya cash-in workflow is available for approved business wallets; production activation still requires regulatory approval, legal disclosures, security review, finance operations, and reconciliation certification.
 
 ## Stack
 
@@ -88,12 +88,14 @@ On the first successful Auth0 callback, the web application calls the authentica
 signed-in Auth0 profile, and idempotently creates or links the local identity, investor role,
 profile, wallet, KYC case, and ledger accounts.
 
-Replace PAYMENT_PROVIDER, PAYOUT_PROVIDER, and KYC_PROVIDER with licensed adapters.
-Production startup rejects mock providers. Implement adapter-specific checkout, signed
-webhook verification, payout status handling, KYC case/document exchange, reconciliation
-exports, and secrets in AWS Secrets Manager.
+Production startup rejects mock providers. Manual GCash/Maya cash-in uses
+`PAYMENT_PROVIDER=manual` and remains disabled until `MANUAL_PAYMENTS_ENABLED=true` plus both
+approved destination numbers are supplied through the server secret store. Payout and KYC still
+require approved integrations, reconciliation exports, and protected credentials.
 
-Never update the wallet from a browser return URL. Provider state changes must arrive through verified server-to-server events with immutable payload retention and idempotency.
+Never update the wallet from a browser action, redirect, QR scan, receipt, or screenshot. Manual
+cash-in is credited only after an authorized reviewer matches the official receiving-wallet
+transaction and the API posts the balanced idempotent ledger transaction.
 
 ## Railway backend deployment
 
@@ -112,13 +114,16 @@ Railway's encrypted variable store:
     AUTH_PROVIDER=auth0
     AUTH0_DOMAIN=dev-pxj0s10eaa2tbiuh.us.auth0.com
     AUTH0_AUDIENCE=https://api.vertex-legacy.com
-    PAYMENT_PROVIDER=licensed
+    PAYMENT_PROVIDER=manual
+    MANUAL_PAYMENTS_ENABLED=false
+    GCASH_DESTINATION_NUMBER=<approved GCash for Business number>
+    MAYA_DESTINATION_NUMBER=<approved Maya Business number>
     PAYOUT_PROVIDER=licensed
     KYC_PROVIDER=licensed
 
-The `licensed` values keep all mock financial flows disabled; they do not enable live
-money movement. Add real provider adapters and credentials before enabling those
-features. The current BullMQ worker is intentionally not deployed because the API does
+The manual payment flow stays disabled until its explicit activation flag is set. Never activate
+it with personal wallets or before the finance-review and reconciliation runbook is operational.
+The `licensed` payout and KYC values keep those flows fail-closed. The current BullMQ worker is intentionally not deployed because the API does
 not enqueue jobs yet. Add Redis and the worker when queue-backed processing is wired in.
 
 After Railway assigns the API domain, set both `INTERNAL_API_URL` and

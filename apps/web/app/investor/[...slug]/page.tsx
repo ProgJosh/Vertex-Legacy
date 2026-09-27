@@ -65,6 +65,14 @@ type Config = {
   withdrawalClosesAt: string;
   withdrawalTimezone: string;
   promotionalCreditsWithdrawable: boolean;
+  manualPaymentsEnabled: boolean;
+};
+
+type PaymentChannel = {
+  code: "GCASH" | "MAYA";
+  name: string;
+  destinationNumber: string;
+  qrAssetPath: string | null;
 };
 
 type Plan = {
@@ -221,13 +229,16 @@ export default async function InvestorSection({
   }
 
   if (section === "cash-in") {
-    const config = await apiGet<Config>("/public/config");
+    const [config, paymentChannels] = await Promise.all([
+      apiGet<Config>("/public/config"),
+      apiGet<PaymentChannel[]>("/deposits/channels"),
+    ]);
     return (
       <>
-        <Heading eyebrow="Cash in" title="Create a provider-backed funding request." description="The browser creates a pending intent. Only the sandbox provider webhook can post funds to the ledger." />
+        <Heading eyebrow="Cash in" title="Fund with GCash or Maya." description="Choose a payment channel, send the exact amount to the verified destination, then submit the wallet reference for finance review." />
         <div className="dashboard-grid">
-          <section className="panel"><CashInForm minimumCentavos={config.minimumDepositCentavos} /></section>
-          <aside className="panel"><h2 style={{ fontSize: "1.5rem" }}>Control path</h2><ol className="muted"><li>Amount and minimum validated.</li><li>Idempotent deposit intent created.</li><li>Sandbox checkout initialized.</li><li>Signed webhook verified and deduplicated.</li><li>Balanced entries posted and wallet refreshed.</li></ol></aside>
+          <section className="panel"><CashInForm minimumCentavos={config.minimumDepositCentavos} manualPaymentsEnabled={config.manualPaymentsEnabled} paymentChannels={paymentChannels} /></section>
+          <aside className="panel"><h2 style={{ fontSize: "1.5rem" }}>Verification path</h2><ol className="muted"><li>Channel, amount and minimum validated.</li><li>Pending cash-in request created.</li><li>User transfers to the displayed GCash or Maya destination.</li><li>Finance matches the real wallet record and reference.</li><li>One balanced, idempotent ledger posting credits the wallet.</li></ol><p className="disclosure" style={{ marginTop: 18 }}>A receipt or screenshot alone is not proof of settlement. Never send to a destination shared outside this page.</p></aside>
         </div>
       </>
     );

@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
-import { apiGet } from "@/lib/api";
+import { apiGet, optionalApiGet } from "@/lib/api";
 
 type Me = {
   email: string;
@@ -10,8 +10,12 @@ type Me = {
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   let me: Me;
+  let manualPaymentsEnabled = false;
   try {
-    me = await apiGet<Me>("/me");
+    [me, manualPaymentsEnabled] = await Promise.all([
+      apiGet<Me>("/me"),
+      optionalApiGet<{ manualPaymentsEnabled: boolean }>("/public/config", { manualPaymentsEnabled: false }).then((config) => config.manualPaymentsEnabled),
+    ]);
   } catch {
     redirect("/login");
   }
@@ -20,6 +24,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   return (
     <AppShell
       mode="admin"
+      environmentLabel={manualPaymentsEnabled ? "Manual wallet settlement · dual-control review" : undefined}
       logoutHref={
         process.env.AUTH_PROVIDER === "auth0" || process.env.NODE_ENV === "production"
           ? "/auth/logout?returnTo=/"
