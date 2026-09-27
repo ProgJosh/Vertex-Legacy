@@ -7,6 +7,8 @@ Railway service for the NestJS API and PostgreSQL database. The current producti
 - API: `https://api-production-8c96.up.railway.app/v1`
 - Auth0 audience: `https://api.vertex-legacy.com`
 - Auth0 callback: `https://vertex-legacy.joshua27emmanuel30.workers.dev/auth/callback`
+- Auth0 logout URL: `https://vertex-legacy.joshua27emmanuel30.workers.dev`
+- Auth0 web origin: `https://vertex-legacy.joshua27emmanuel30.workers.dev`
 
 ## Safety boundary
 

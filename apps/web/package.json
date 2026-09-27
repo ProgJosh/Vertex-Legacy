@@ -11,7 +11,7 @@
     "test": "vitest run --passWithNoTests",
     "test:e2e": "playwright test",
     "preview": "node ../../scripts/build-cloudflare-linux.mjs && opennextjs-cloudflare preview",
-    "deploy": "node ../../scripts/build-cloudflare-linux.mjs && wrangler deploy",
+    "deploy": "node ../../scripts/deploy-cloudflare.mjs",
     "cf-typegen": "wrangler types --env-interface CloudflareEnv cloudflare-env.d.ts"
   },
   "dependencies": {
