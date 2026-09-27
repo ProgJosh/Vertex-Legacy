@@ -4,7 +4,7 @@ The supported deployment is a Cloudflare Worker for the Next.js application and 
 Railway service for the NestJS API and PostgreSQL database. The current production URLs are:
 
 - Web: `https://vertex-legacy.joshua27emmanuel30.workers.dev`
-- API: `https://api-production-8c96.up.railway.app/v1`
+- API: `https://vertex-legacy-1.onrender.com/v1`
 - Auth0 audience: `https://api.vertex-legacy.com`
 - Auth0 callback: `https://vertex-legacy.joshua27emmanuel30.workers.dev/auth/callback`
 - Auth0 logout URL: `https://vertex-legacy.joshua27emmanuel30.workers.dev`
@@ -87,7 +87,7 @@ states.
 
 Verify after deployment:
 
-    curl.exe --silent --show-error --include https://api-production-8c96.up.railway.app/v1/health
+    curl.exe --silent --show-error --include https://vertex-legacy-1.onrender.com/v1/health
 
 Expected before activation: HTTP 200 with `status: "ok"` and `moneyMovement: "disabled"`.
 After deliberate activation, expect `moneyMovement: "manual-review"`.

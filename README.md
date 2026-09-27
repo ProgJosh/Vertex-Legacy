@@ -126,8 +126,8 @@ it with personal wallets or before the finance-review and reconciliation runbook
 The `licensed` payout and KYC values keep those flows fail-closed. The current BullMQ worker is intentionally not deployed because the API does
 not enqueue jobs yet. Add Redis and the worker when queue-backed processing is wired in.
 
-After Railway assigns the API domain, set both `INTERNAL_API_URL` and
-`NEXT_PUBLIC_API_URL` in the Cloudflare Workers environment to the Railway URL with the
+After the backend host assigns the API domain, set both `INTERNAL_API_URL` and
+`NEXT_PUBLIC_API_URL` in the Cloudflare Workers environment to the production API URL with the
 `/v1` suffix, set `AUTH_PROVIDER=auth0`, then redeploy the web application. Store Auth0
 secrets only in Cloudflare's encrypted secret store; never put them in repository files or
 public variables.
