@@ -11,6 +11,7 @@ import { PrismaService } from "../src/services/prisma.service";
 import { UserService } from "../src/services/user.service";
 import { ProvidersService } from "../src/services/providers.service";
 import { PaymentProviderRegistry } from "../src/services/payment-providers";
+import { DailyRewardService } from "../src/services/daily-reward.service";
 
 describe("HTTP integration", () => {
   let app: INestApplication;
@@ -26,6 +27,7 @@ describe("HTTP integration", () => {
         { provide: PlanService, useValue: {} },
         { provide: AuditService, useValue: {} },
         { provide: ProvidersService, useValue: {} },
+        { provide: DailyRewardService, useValue: {} },
         { provide: PaymentProviderRegistry, useValue: new PaymentProviderRegistry() },
       ],
     }).compile();

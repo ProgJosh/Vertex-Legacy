@@ -17,6 +17,7 @@ import { CommissionService } from "./services/commission.service";
 import { UserService } from "./services/user.service";
 import { PlanService } from "./services/plan.service";
 import { BigIntInterceptor } from "./common/bigint.interceptor";
+import { DailyRewardService } from "./services/daily-reward.service";
 
 @Module({
   imports: [
@@ -41,6 +42,7 @@ import { BigIntInterceptor } from "./common/bigint.interceptor";
     CommissionService,
     UserService,
     PlanService,
+    DailyRewardService,
     { provide: APP_INTERCEPTOR, useClass: BigIntInterceptor },
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useClass: AuthGuard },

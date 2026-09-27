@@ -116,16 +116,16 @@ export function manualPaymentChannels(source: NodeJS.ProcessEnv = process.env) {
  * cannot ship a schedule whose arithmetic contradicts itself.
  */
 export const companyVipPlans = [
-  { name: "VIP 1", priceCentavos: 25_000n, dailyPayoutCentavos: 4_000n, cycleDays: 60, totalReturnCentavos: 240_000n },
-  { name: "VIP 2", priceCentavos: 30_000n, dailyPayoutCentavos: 5_200n, cycleDays: 60, totalReturnCentavos: 312_000n },
-  { name: "VIP 3", priceCentavos: 50_000n, dailyPayoutCentavos: 9_000n, cycleDays: 60, totalReturnCentavos: 540_000n },
-  { name: "VIP 4", priceCentavos: 100_000n, dailyPayoutCentavos: 16_500n, cycleDays: 60, totalReturnCentavos: 990_000n },
-  { name: "VIP 5", priceCentavos: 200_000n, dailyPayoutCentavos: 31_000n, cycleDays: 60, totalReturnCentavos: 1_860_000n },
-  { name: "VIP 6", priceCentavos: 500_000n, dailyPayoutCentavos: 72_000n, cycleDays: 60, totalReturnCentavos: 4_320_000n },
-  { name: "VIP 7", priceCentavos: 1_000_000n, dailyPayoutCentavos: 130_000n, cycleDays: 60, totalReturnCentavos: 7_800_000n },
-  { name: "VIP 8", priceCentavos: 1_300_000n, dailyPayoutCentavos: 165_000n, cycleDays: 60, totalReturnCentavos: 9_900_000n },
-  { name: "VIP 9", priceCentavos: 1_450_000n, dailyPayoutCentavos: 178_000n, cycleDays: 60, totalReturnCentavos: 10_680_000n },
-  { name: "VIP 10", priceCentavos: 1_500_000n, dailyPayoutCentavos: 185_000n, cycleDays: 60, totalReturnCentavos: 11_100_000n },
+  { name: "VIP 1", priceCentavos: 25_000n, dailyPayoutCentavos: 2_000n, cycleDays: 60, totalReturnCentavos: 120_000n },
+  { name: "VIP 2", priceCentavos: 30_000n, dailyPayoutCentavos: 3_500n, cycleDays: 60, totalReturnCentavos: 210_000n },
+  { name: "VIP 3", priceCentavos: 50_000n, dailyPayoutCentavos: 5_500n, cycleDays: 60, totalReturnCentavos: 330_000n },
+  { name: "VIP 4", priceCentavos: 100_000n, dailyPayoutCentavos: 8_500n, cycleDays: 60, totalReturnCentavos: 510_000n },
+  { name: "VIP 5", priceCentavos: 200_000n, dailyPayoutCentavos: 17_500n, cycleDays: 60, totalReturnCentavos: 1_050_000n },
+  { name: "VIP 6", priceCentavos: 500_000n, dailyPayoutCentavos: 42_000n, cycleDays: 60, totalReturnCentavos: 2_520_000n },
+  { name: "VIP 7", priceCentavos: 1_000_000n, dailyPayoutCentavos: 78_000n, cycleDays: 60, totalReturnCentavos: 4_680_000n },
+  { name: "VIP 8", priceCentavos: 1_300_000n, dailyPayoutCentavos: 100_000n, cycleDays: 60, totalReturnCentavos: 6_000_000n },
+  { name: "VIP 9", priceCentavos: 1_450_000n, dailyPayoutCentavos: 110_000n, cycleDays: 60, totalReturnCentavos: 6_600_000n },
+  { name: "VIP 10", priceCentavos: 1_500_000n, dailyPayoutCentavos: 118_000n, cycleDays: 60, totalReturnCentavos: 7_080_000n },
 ] as const;
 
 /**

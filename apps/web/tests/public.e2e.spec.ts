@@ -27,16 +27,16 @@ test("company plans render the API-backed VIP and commission schedules", async (
   const firstTier = schedule.locator("tbody tr").first();
   await expect(firstTier).toContainText("VIP 1");
   await expect(firstTier).toContainText("₱250.00");
-  await expect(firstTier).toContainText("₱40.00");
+  await expect(firstTier).toContainText("₱20.00");
   await expect(firstTier).toContainText("60");
-  await expect(firstTier).toContainText("₱2,400.00");
+  await expect(firstTier).toContainText("₱1,200.00");
 
   const lastTier = schedule.locator("tbody tr").last();
   await expect(lastTier).toContainText("VIP 10");
   await expect(lastTier).toContainText("₱15,000.00");
-  await expect(lastTier).toContainText("₱1,850.00");
+  await expect(lastTier).toContainText("₱1,180.00");
   await expect(lastTier).toContainText("60");
-  await expect(lastTier).toContainText("₱111,000.00");
+  await expect(lastTier).toContainText("₱70,800.00");
 
   const levels = page.locator(".company-plans-level-grid");
   await expect(levels).toContainText("Level 1");

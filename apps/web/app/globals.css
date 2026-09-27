@@ -1093,3 +1093,121 @@ h3 {
     transition-duration: 0.01ms !important;
   }
 }
+
+.access-choice {
+  display: grid;
+  gap: 12px;
+}
+
+.access-card {
+  display: grid;
+  gap: 6px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  background: #0c0e0f;
+}
+
+.access-card:hover {
+  border-color: var(--gold);
+  background: #17140e;
+}
+
+.access-card strong { color: var(--champagne); font-size: 18px; }
+.access-card span { color: var(--muted); font-size: 13px; }
+
+.product-tabs {
+  display: inline-flex;
+  gap: 4px;
+  margin-bottom: 18px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  background: #0c0e0f;
+}
+
+.product-tabs span { padding: 9px 15px; color: var(--muted); font-size: 12px; }
+.product-tabs .active { background: var(--gold); color: #090909; font-weight: 700; }
+
+.product-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.product-card {
+  position: relative;
+  overflow: hidden;
+  display: grid;
+  gap: 14px;
+  min-height: 360px;
+  padding: 22px;
+  border: 1px solid var(--line);
+  background: radial-gradient(circle at 90% 0, rgba(211, 170, 82, .16), transparent 38%), var(--graphite);
+}
+
+.product-card::after {
+  content: "V";
+  position: absolute;
+  right: -8px;
+  top: 20px;
+  color: rgba(211, 170, 82, .06);
+  font: 700 150px/1 Georgia, serif;
+  pointer-events: none;
+}
+
+.product-card-top { display: flex; justify-content: space-between; align-items: center; }
+.product-number { color: var(--gold); font: 600 22px/1 Georgia, serif; }
+.product-card h2 { font-size: 28px; }
+.product-amount { color: var(--champagne); font: 500 30px/1 Georgia, serif; }
+.product-card dl { display: grid; gap: 8px; margin: 0; }
+.product-card dl div { display: flex; justify-content: space-between; gap: 12px; padding-top: 8px; border-top: 1px solid var(--line); }
+.product-card dt { color: var(--muted); }
+.product-card dd { margin: 0; }
+
+.invite-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 220px;
+  gap: 28px;
+  align-items: center;
+  margin-bottom: 20px;
+  padding: 28px;
+  border: 1px solid var(--line-gold);
+  background: radial-gradient(circle at 90% 40%, rgba(211, 170, 82, .22), transparent 42%), #15130f;
+}
+
+.invite-hero h2 { font-size: clamp(2rem, 5vw, 4rem); }
+.invite-mark { color: var(--gold); font: 700 180px/1 Georgia, serif; text-align: center; opacity: .45; }
+.invite-link { display: flex; align-items: end; justify-content: space-between; gap: 14px; margin-top: 22px; padding: 14px; border: 1px solid var(--line); background: #0b0c0d; }
+.invite-link div { min-width: 0; display: grid; gap: 4px; }
+.invite-link small { color: var(--muted); }
+.invite-link strong { overflow-wrap: anywhere; font-size: 12px; }
+
+.reward-layout { display: grid; gap: 18px; }
+.reward-hero { display: flex; justify-content: space-between; align-items: center; gap: 20px; padding: 28px; border: 1px solid var(--line-gold); background: linear-gradient(120deg, #1c180f, #111315); }
+.reward-hero > div > strong { display: block; color: var(--champagne); font: 500 clamp(3rem, 8vw, 6rem)/1 Georgia, serif; }
+.reward-hero strong small { color: var(--muted); font-size: 18px; }
+.reward-earned { min-width: 130px; padding: 20px; border: 1px solid var(--line); text-align: center; }
+.reward-earned strong { display: block; color: var(--gold); font-size: 40px; }
+.reward-calendar { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; margin-bottom: 18px; }
+.reward-day { display: grid; gap: 5px; min-height: 72px; padding: 10px; border: 1px solid var(--line); background: #0c0e0f; }
+.reward-day small { color: var(--muted); }
+.reward-day.claimed { border-color: #335a40; background: #111d14; }
+.reward-day.current { border-color: var(--gold); box-shadow: inset 0 -3px 0 var(--gold); }
+
+.commission-levels { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1px; margin-bottom: 18px; border: 1px solid var(--line); background: var(--line); }
+.commission-levels div { display: grid; gap: 7px; padding: 22px; background: linear-gradient(145deg, #1a1710, var(--graphite)); }
+.commission-levels small, .commission-levels span { color: var(--muted); }
+.commission-levels strong { color: var(--gold); font: 500 36px/1 Georgia, serif; }
+
+@media (max-width: 980px) {
+  .product-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .reward-calendar { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+
+@media (max-width: 640px) {
+  .product-grid, .commission-levels { grid-template-columns: 1fr; }
+  .invite-hero { grid-template-columns: 1fr; }
+  .invite-mark { display: none; }
+  .invite-link { align-items: stretch; flex-direction: column; }
+  .reward-calendar { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .reward-hero { align-items: stretch; flex-direction: column; }
+}

@@ -33,6 +33,7 @@ function controllerWith(prisma: Record<string, unknown>, audit = { record: vi.fn
       {} as never,
       audit as never,
       registry as never,
+      {} as never,
     ),
     audit,
   };

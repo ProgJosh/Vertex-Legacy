@@ -24,6 +24,10 @@ describe("authoritative company schedules", () => {
       1_450_000n,
       1_500_000n,
     ]);
+    expect(companyVipPlans.map((plan) => plan.dailyPayoutCentavos)).toEqual([
+      2_000n, 3_500n, 5_500n, 8_500n, 17_500n,
+      42_000n, 78_000n, 100_000n, 110_000n, 118_000n,
+    ]);
   });
 
   it("keeps every stated total equal to daily payout times the 60-day cycle", () => {

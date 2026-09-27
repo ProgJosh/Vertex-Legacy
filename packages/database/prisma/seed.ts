@@ -323,6 +323,9 @@ async function main() {
       performanceLabel: "Company schedule · return not guaranteed",
       dailyPayoutCentavos: plan.dailyPayoutCentavos,
       totalReturnCentavos: plan.totalReturnCentavos,
+      productType: "daily",
+      fixedReturnCentavos: plan.totalReturnCentavos,
+      maxDurationDays: plan.cycleDays,
       eligibilityRequirements: { kyc: "VERIFIED", minimumAge: 18 },
       terms:
         "Fixed-price, fixed-duration company plan. The daily payout and total return shown are the figures published in the company plan schedule; they are a stated schedule, not a guaranteed or assured return, and the platform does not underwrite them. Returns are not guaranteed and capital is at risk. Availability is subject to capacity, suitability and provider approval. Confirm the current schedule with Vertex Legacy before subscribing.",

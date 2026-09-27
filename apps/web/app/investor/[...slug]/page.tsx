@@ -16,6 +16,7 @@ import {
   SupportCaseForm,
 } from "@/components/account-forms";
 import { PortfolioChart } from "@/components/portfolio-chart";
+import { AcceptInvitation, DailyReward, InviteLink } from "@/components/engagement-actions";
 import {
   CompanyPlans,
   type CommissionLevel,
@@ -93,6 +94,7 @@ type Plan = {
   totalReturnCentavos: string;
   terms: string;
   promotionalBadge: string | null;
+  productType: string;
 };
 
 type Transaction = {
@@ -271,6 +273,18 @@ export default async function InvestorSection({
     );
   }
 
+  if (section === "products") {
+    const plans = await optionalApiGet<Plan[]>("/public/plans", []);
+    return (
+      <>
+        <Heading eyebrow="Products hall" title="Choose a daily settlement product." description="Review price, daily schedule, cycle, total stated return and risk before buying. Purchases use deposited funds and require verified KYC." />
+        <div className="product-tabs"><span className="active">Daily products</span><span>Maturity products</span></div>
+        {plans.length ? <div className="product-grid">{plans.map((plan, index) => <article className="product-card" key={plan.id}><div className="product-card-top"><span className="product-number">{String(index + 1).padStart(2, "0")}</span><span className="status status-warning">{plan.durationDays} days</span></div><p className="eyebrow">Daily product</p><h2>{plan.name}</h2><div className="product-amount">{formatPhp(plan.minimumCentavos)}</div><dl><div><dt>Daily</dt><dd>{formatPhp(plan.dailyPayoutCentavos)}</dd></div><div><dt>Total schedule</dt><dd>{formatPhp(plan.totalReturnCentavos)}</dd></div><div><dt>Risk</dt><dd>{plan.riskClassification}</dd></div></dl><Button asChild style={{ width: "100%" }}><Link href={"/investor/plans/" + plan.slug}>Review and buy</Link></Button></article>)}</div> : <div className="empty-state">No daily products are open.</div>}
+        <p className="disclosure" style={{ marginTop: 18 }}>Published payouts are a stated company schedule, not guaranteed returns. Capital is at risk.</p>
+      </>
+    );
+  }
+
   if (section === "plans" && slug[1]) {
     const plan = await optionalApiGet<Plan | null>("/public/plans/" + slug[1], null);
     if (!plan) notFound();
@@ -315,6 +329,11 @@ export default async function InvestorSection({
     );
   }
 
+  if (section === "daily-reward") {
+    const reward = await apiGet<{ checkedInToday: boolean; streak: number; cycleDay: number; nextRewardCentavos: string; rewardsCentavos: string[]; claimedDays: string[]; disclosure: string }>("/me/daily-reward");
+    return <><Heading eyebrow="Daily reward" title="Build a 30-day check-in streak." description="Claim one non-withdrawable promotional reward per Manila calendar day. Rewards are posted to the ledger and shown separately from deposited cash." /><DailyReward initial={reward} /></>;
+  }
+
   if (section === "portfolio") {
     const holdings = await optionalApiGet<Array<{ id: string; costBasisCentavos: string; units: string; plan: Plan }>>("/me/portfolio", []);
     return (
@@ -342,13 +361,27 @@ export default async function InvestorSection({
   }
 
   if (section === "commissions") {
-    const commissions = await optionalApiGet<Array<{ id: string; reason: string; amountCentavos: string; status: string; sourceEventType: string; sourceOrderId: string; createdAt: string }>>("/me/commissions", []);
+    const [commissions, levels] = await Promise.all([optionalApiGet<Array<{ id: string; reason: string; amountCentavos: string; status: string; sourceEventType: string; sourceOrderId: string; createdAt: string }>>("/me/commissions", []), optionalApiGet<CommissionLevel[]>("/public/commission-levels", [])]);
+    const paid = commissions.filter((item) => item.status === "PAID").reduce((sum, item) => sum + BigInt(item.amountCentavos), 0n);
     return (
       <>
         <Heading eyebrow="Commission history" title="Qualified, explained, reversible." description="Every commission identifies its documented source and reason. Deposits alone never qualify." />
+        <section className="commission-levels">{levels.map((item) => <div key={item.id}><small>Level {item.level ?? "–"}</small><strong>{(Number(item.rate) * 100).toFixed(0)}%</strong><span>{item.active ? "Active rule" : "Paused"}</span></div>)}</section>
+        <section className="metrics"><div className="metric"><small>Paid commission</small><strong>{formatPhp(paid.toString())}</strong><em>Qualified events only</em></div><div className="metric"><small>Recorded events</small><strong>{commissions.length}</strong><em>Full audit trail</em></div></section>
         <section className="panel">{commissions.length ? <div className="table-scroll"><table className="data-table"><thead><tr><th>Reason</th><th>Source order</th><th>Amount</th><th>Status</th></tr></thead><tbody>{commissions.map((item) => <tr key={item.id}><td>{item.reason}<div className="muted">{item.sourceEventType}</div></td><td>{item.sourceOrderId}</td><td>{formatPhp(item.amountCentavos)}</td><td><Status value={item.status} /></td></tr>)}</tbody></table></div> : <div className="empty-state">No commission events have been recorded.</div>}</section>
       </>
     );
+  }
+
+  if (section === "invite") {
+    const data = await apiGet<{ referralCode: string; programStatement: string; referrals: Array<{ id: string; status: string }> }>("/me/referrals");
+    const origin = process.env.WEB_ORIGIN ?? "https://vertex-legacy.joshua27emmanuel30.workers.dev";
+    return <><Heading eyebrow="Invite friends" title="Share your personal invitation." description="Invite people you know without promising income or returns. Attribution is recorded only after the invited person signs in and accepts." /><section className="invite-hero"><div><p className="eyebrow">Your invitation code</p><h2>{data.referralCode}</h2><p>{data.programStatement}</p><InviteLink code={data.referralCode} origin={origin} /></div><div className="invite-mark" aria-hidden="true">V</div></section><section className="metrics"><div className="metric"><small>Invited members</small><strong>{data.referrals.length}</strong></div><div className="metric"><small>Verified links</small><strong>{data.referrals.filter((item) => ["VERIFIED", "ELIGIBLE"].includes(item.status)).length}</strong></div></section><p className="disclosure">Self-referrals, duplicate identities, deceptive promotion and deposit-based commissions are prohibited.</p></>;
+  }
+
+  if (section === "invitations") {
+    const referralCode = typeof query.ref === "string" && /^VTX-[A-Fa-f0-9]{8}$/.test(query.ref) ? query.ref.toUpperCase() : null;
+    return <><Heading eyebrow="Invitation" title="Confirm who invited you." description="Accepting an invitation links attribution only. It does not guarantee a reward, return, or commission." />{referralCode ? <AcceptInvitation referralCode={referralCode} /> : <div className="empty-state">No valid invitation code was supplied.</div>}</>;
   }
 
   if (section === "team") {

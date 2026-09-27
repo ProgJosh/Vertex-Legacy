@@ -4,8 +4,11 @@ import { Button } from "@/components/ui/button";
 
 export const metadata = { title: "Registration" };
 
-export default function RegisterPage() {
+export default async function RegisterPage({ searchParams }: { searchParams: Promise<{ ref?: string }> }) {
   const useAuth0 = process.env.AUTH_PROVIDER === "auth0" || process.env.NODE_ENV === "production";
+  const { ref } = await searchParams;
+  const referralCode = /^VTX-[A-Fa-f0-9]{8}$/.test(ref ?? "") ? ref!.toUpperCase() : null;
+  const returnTo = referralCode ? "/investor/invitations?ref=" + encodeURIComponent(referralCode) : "/investor/onboarding";
   return (
     <div className="container">
       <section className="form-shell">
@@ -17,7 +20,7 @@ export default function RegisterPage() {
         </p>
         {useAuth0 ? (
           <Button asChild style={{ width: "100%" }}>
-            <a href="/auth/login?screen_hint=signup&returnTo=/investor/onboarding">
+            <a href={"/auth/login?screen_hint=signup&returnTo=" + encodeURIComponent(returnTo)}>
               Create account securely
             </a>
           </Button>

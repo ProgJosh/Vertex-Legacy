@@ -42,6 +42,7 @@ import { parseCentavos } from "@vertex/types";
 import { randomUUID } from "node:crypto";
 import { manualPaymentChannels } from "@vertex/config";
 import { encryptPayoutIdentifier } from "./services/payout-account-crypto";
+import { DailyRewardService } from "./services/daily-reward.service";
 
 const reasonSchema = z.object({ reason: z.string().min(8).max(500) });
 
@@ -57,6 +58,7 @@ export class AppController {
     @Inject(PlanService) private readonly plans: PlanService,
     @Inject(AuditService) private readonly audit: AuditService,
     @Inject(ProvidersService) private readonly providers: ProvidersService,
+    @Inject(DailyRewardService) private readonly dailyRewards: DailyRewardService,
   ) {}
 
   @Public()
@@ -428,6 +430,48 @@ export class AppController {
         orderBy: { createdAt: "desc" },
       }),
     };
+  }
+
+  @RequirePermissions(Permissions.USER_READ_SELF)
+  @Post("me/referrals/claim")
+  async claimReferral(
+    @CurrentUser() current: AuthenticatedUser,
+    @Body() body: unknown,
+  ) {
+    const { referralCode } = z.object({
+      referralCode: z.string().trim().toUpperCase().regex(/^VTX-[A-F0-9]{8}$/),
+    }).parse(body);
+    const prefix = referralCode.slice(4).toLowerCase();
+    const matches = await this.prisma.$queryRaw<Array<{ id: string }>>(
+      Prisma.sql`SELECT "id"::text AS "id" FROM "User" WHERE lower(left("id"::text, 8)) = ${prefix} LIMIT 2`,
+    );
+    if (matches.length !== 1) throw new NotFoundException("Invitation code was not found.");
+    const referrerUserId = matches[0]!.id;
+    if (referrerUserId === current.id) throw new BadRequestException("Self-referrals are not allowed.");
+    return this.prisma.referral.upsert({
+      where: { referredUserId: current.id },
+      update: {},
+      create: {
+        referrerUserId,
+        referredUserId: current.id,
+        referralCode,
+        status: "VERIFIED",
+        verifiedAt: new Date(),
+        eligibilityReason: "Identity linked; commission eligibility begins only after a documented qualifying service-fee event.",
+      },
+    });
+  }
+
+  @RequirePermissions(Permissions.USER_READ_SELF)
+  @Get("me/daily-reward")
+  dailyRewardStatus(@CurrentUser() current: AuthenticatedUser) {
+    return this.dailyRewards.status(current.id);
+  }
+
+  @RequirePermissions(Permissions.USER_READ_SELF)
+  @Post("me/daily-reward/claim")
+  claimDailyReward(@CurrentUser() current: AuthenticatedUser) {
+    return this.dailyRewards.claim(current.id);
   }
 
   @RequirePermissions(Permissions.USER_READ_SELF)
