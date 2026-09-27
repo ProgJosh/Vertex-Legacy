@@ -6,8 +6,24 @@ import { auth0Enabled, signInHref, signUpHref } from "@/lib/auth-links";
 
 export const metadata = { title: "Sign in" };
 
-export default function LoginPage() {
+type LoginPageProps = {
+  searchParams: Promise<{ error?: string }>;
+};
+
+const authErrorMessage = (error?: string) => {
+  if (error === "provisioning") {
+    return "Your identity was verified, but Vertex could not finish creating your account. Please contact support.";
+  }
+  if (error === "authentication") {
+    return "Sign-in could not be completed. Please try again. If this continues, contact support.";
+  }
+  return null;
+};
+
+export default async function LoginPage({ searchParams }: LoginPageProps) {
   const useAuth0 = auth0Enabled();
+  const { error } = await searchParams;
+  const errorMessage = authErrorMessage(error);
   return (
     <div className="container">
       <section className="form-shell">
@@ -18,6 +34,11 @@ export default function LoginPage() {
             ? "Continue through Auth0 Universal Login for secure account access."
             : "Local development uses isolated demonstration identities."}
         </p>
+        {errorMessage ? (
+          <p className="error-banner" role="alert">
+            {errorMessage}
+          </p>
+        ) : null}
         {useAuth0 ? (
           <div style={{ display: "grid", gap: 12 }}>
             <Button asChild style={{ width: "100%" }}>
