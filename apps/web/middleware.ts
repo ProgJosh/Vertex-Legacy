@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth0 } from "./lib/auth0";
+import { signInHref } from "./lib/auth-links";
 
 function withCsp(response: NextResponse, csp: string) {
   response.headers.set("Content-Security-Policy", csp);
@@ -37,15 +38,19 @@ export async function middleware(request: NextRequest) {
     if (protectedPath) {
       const session = await auth0.getSession(forwardedRequest);
       if (!session) {
-        const login = new URL("/auth/login", request.url);
-        login.searchParams.set("returnTo", request.nextUrl.pathname + request.nextUrl.search);
+        const login = new URL(
+          signInHref(request.nextUrl.pathname + request.nextUrl.search),
+          request.url,
+        );
         return withCsp(NextResponse.redirect(login), csp);
       }
       try {
         await auth0.getAccessToken(forwardedRequest, authResponse);
       } catch {
-        const login = new URL("/auth/login", request.url);
-        login.searchParams.set("returnTo", request.nextUrl.pathname + request.nextUrl.search);
+        const login = new URL(
+          signInHref(request.nextUrl.pathname + request.nextUrl.search),
+          request.url,
+        );
         return withCsp(NextResponse.redirect(login), csp);
       }
     }

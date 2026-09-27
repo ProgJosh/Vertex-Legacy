@@ -2,13 +2,12 @@ import Link from "next/link";
 import { Suspense } from "react";
 import { LoginForm } from "@/components/auth-forms";
 import { Button } from "@/components/ui/button";
+import { auth0Enabled, signInHref, signUpHref } from "@/lib/auth-links";
 
 export const metadata = { title: "Sign in" };
 
 export default function LoginPage() {
-  const useAuth0 =
-    process.env.AUTH_PROVIDER === "auth0" ||
-    process.env.NODE_ENV === "production";
+  const useAuth0 = auth0Enabled();
   return (
     <div className="container">
       <section className="form-shell">
@@ -22,12 +21,10 @@ export default function LoginPage() {
         {useAuth0 ? (
           <div style={{ display: "grid", gap: 12 }}>
             <Button asChild style={{ width: "100%" }}>
-              <a href="/auth/login">Sign in to existing account</a>
+              <a href={signInHref()}>Sign in to existing account</a>
             </Button>
             <Button asChild variant="secondary" style={{ width: "100%" }}>
-              <a href="/auth/login?screen_hint=signup&returnTo=%2Finvestor%2Fonboarding">
-                Create new account
-              </a>
+              <a href={signUpHref()}>Create new account</a>
             </Button>
           </div>
         ) : (

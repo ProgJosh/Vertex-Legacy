@@ -9,6 +9,7 @@ import {
 import { formatPhp } from "@vertex/ui";
 import { optionalApiGet } from "@/lib/api";
 import { Button } from "@/components/ui/button";
+import { auth0Enabled, signUpHref } from "@/lib/auth-links";
 
 type Config = {
   signupBonusCentavos: string;
@@ -32,10 +33,7 @@ type Plan = {
 };
 
 export default async function LandingPage() {
-  const signupHref =
-    process.env.AUTH_PROVIDER === "auth0" || process.env.NODE_ENV === "production"
-      ? "/auth/login?screen_hint=signup&returnTo=%2Finvestor%2Fonboarding"
-      : "/register";
+  const signupHref = auth0Enabled() ? signUpHref() : "/register";
   const [config, plans] = await Promise.all([
     optionalApiGet<Config | null>("/public/config", null),
     optionalApiGet<Plan[]>("/public/plans", []),

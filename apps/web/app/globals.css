@@ -1029,9 +1029,15 @@ h3 {
   .public-header-inner {
     min-height: 64px;
   }
-  .header-actions .button-secondary {
-    display: none;
+  .header-actions {
+    gap: 6px;
   }
+  .header-actions .button {
+    min-height: 38px;
+    padding-inline: 10px;
+    font-size: 11px;
+  }
+  .brand strong,
   .brand span {
     display: none;
   }

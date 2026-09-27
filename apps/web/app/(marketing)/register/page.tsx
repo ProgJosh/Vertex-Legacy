@@ -1,11 +1,12 @@
 import Link from "next/link";
 import { RegisterForm } from "@/components/auth-forms";
 import { Button } from "@/components/ui/button";
+import { auth0Enabled, signUpHref } from "@/lib/auth-links";
 
 export const metadata = { title: "Registration" };
 
 export default async function RegisterPage({ searchParams }: { searchParams: Promise<{ ref?: string }> }) {
-  const useAuth0 = process.env.AUTH_PROVIDER === "auth0" || process.env.NODE_ENV === "production";
+  const useAuth0 = auth0Enabled();
   const { ref } = await searchParams;
   const referralCode = /^VTX-[A-Fa-f0-9]{8}$/.test(ref ?? "") ? ref!.toUpperCase() : null;
   const returnTo = referralCode ? "/investor/invitations?ref=" + encodeURIComponent(referralCode) : "/investor/onboarding";
@@ -20,7 +21,7 @@ export default async function RegisterPage({ searchParams }: { searchParams: Pro
         </p>
         {useAuth0 ? (
           <Button asChild style={{ width: "100%" }}>
-            <a href={"/auth/login?screen_hint=signup&returnTo=" + encodeURIComponent(returnTo)}>
+            <a href={signUpHref(returnTo)}>
               Create account securely
             </a>
           </Button>

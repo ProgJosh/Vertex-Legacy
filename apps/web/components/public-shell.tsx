@@ -1,12 +1,10 @@
 import Link from "next/link";
 import { Brand } from "./brand";
 import { Button } from "./ui/button";
+import { auth0Enabled, signInHref, signUpHref } from "@/lib/auth-links";
 
 export function PublicHeader() {
-  const signupHref =
-    process.env.AUTH_PROVIDER === "auth0" || process.env.NODE_ENV === "production"
-      ? "/auth/login?screen_hint=signup&returnTo=%2Finvestor%2Fonboarding"
-      : "/register";
+  const signupHref = auth0Enabled() ? signUpHref() : "/register";
   return (
     <header className="public-header">
       <div className="container public-header-inner">
@@ -20,10 +18,10 @@ export function PublicHeader() {
         </nav>
         <div className="header-actions">
           <Button asChild variant="secondary" size="small">
-            <a href="/login">Sign in</a>
+            <a href={auth0Enabled() ? signInHref() : "/login"}>Sign in</a>
           </Button>
           <Button asChild size="small">
-            <a href={signupHref}>Open account</a>
+            <a href={signupHref}>Create account</a>
           </Button>
         </div>
       </div>
