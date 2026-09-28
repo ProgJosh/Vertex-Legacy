@@ -3,6 +3,7 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation } from "@tanstack/react-query";
 import Image from "next/image";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
@@ -161,6 +162,14 @@ export function CashInForm({
             <small>{channel?.name ?? deposit.paymentChannel} destination</small>
             <strong>{channel?.destinationNumber}</strong>
           </div>
+        </div>
+        <div className="callout" role="status">
+          <strong>Payment is not submitted yet.</strong>
+          <p className="muted" style={{ marginBottom: 0 }}>
+            After sending the exact amount, continue below the QR and enter the
+            wallet transaction reference. Your balance changes only after
+            finance approves the submitted transfer.
+          </p>
         </div>
         {deposit.paymentChannel === "GCASH" && channel?.qrAssetPath && (
           <figure className="gcash-qr">
@@ -606,8 +615,14 @@ export function PlanSubscribeForm({
   if (!kycVerified) {
     return (
       <div className="empty-state">
-        Identity verification is required. Submit your review from Account
-        setup, then an administrator can approve it.
+        <p>
+          Identity verification is required before deposited cash can buy a
+          product. Submit your identity review, then wait for an administrator
+          to approve it.
+        </p>
+        <Button asChild>
+          <Link href="/investor/kyc">Submit identity review</Link>
+        </Button>
       </div>
     );
   }

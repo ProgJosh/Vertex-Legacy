@@ -27,7 +27,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
       environmentLabel={manualPaymentsEnabled ? "Manual wallet settlement · dual-control review" : undefined}
       logoutHref={
         process.env.AUTH_PROVIDER === "auth0" || process.env.NODE_ENV === "production"
-          ? "/auth/logout?returnTo=/"
+          ? "/auth/logout"
           : undefined
       }
       user={{

@@ -335,8 +335,11 @@ export default async function InvestorSection({
   }
 
   if (section === "daily-reward") {
-    const reward = await apiGet<{ checkedInToday: boolean; streak: number; cycleDay: number; nextRewardCentavos: string; rewardsCentavos: string[]; claimedDays: string[]; disclosure: string }>("/me/daily-reward");
-    return <><Heading eyebrow="Daily reward" title="Build a 30-day check-in streak." description="Claim one non-withdrawable promotional reward per Manila calendar day. Rewards are posted to the ledger and shown separately from deposited cash." /><DailyReward initial={reward} /></>;
+    const [reward, me] = await Promise.all([
+      apiGet<{ checkedInToday: boolean; streak: number; cycleDay: number; nextRewardCentavos: string; rewardsCentavos: string[]; claimedDays: string[]; disclosure: string }>("/me/daily-reward"),
+      apiGet<Me>("/me"),
+    ]);
+    return <><Heading eyebrow="Daily reward" title="Build a 30-day check-in streak." description="Claim one non-withdrawable promotional reward per Manila calendar day. Rewards are posted to the ledger and shown separately from deposited cash." /><DailyReward initial={reward} kycVerified={me.kycCases[0]?.status === "VERIFIED"} /></>;
   }
 
   if (section === "portfolio") {

@@ -1,6 +1,7 @@
 "use client";
 
 import { useMutation } from "@tanstack/react-query";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { formatPhp } from "@vertex/ui";
@@ -92,7 +93,13 @@ type RewardStatus = {
   disclosure: string;
 };
 
-export function DailyReward({ initial }: { initial: RewardStatus }) {
+export function DailyReward({
+  initial,
+  kycVerified,
+}: {
+  initial: RewardStatus;
+  kycVerified: boolean;
+}) {
   const [status, setStatus] = useState(initial);
   const mutation = useMutation({
     mutationFn: () => post("me/daily-reward/claim"),
@@ -140,20 +147,34 @@ export function DailyReward({ initial }: { initial: RewardStatus }) {
           ))}
         </div>
         <p className="disclosure">{status.disclosure}</p>
+        {!kycVerified && (
+          <div className="callout" style={{ marginBottom: 16 }}>
+            <strong>Identity verification is required.</strong>
+            <p className="muted">
+              Submit your review and wait for administrator approval before
+              claiming daily promotional rewards.
+            </p>
+            <Button asChild variant="secondary">
+              <Link href="/investor/kyc">Submit identity review</Link>
+            </Button>
+          </div>
+        )}
+        {mutation.error && (
+          <p className="error-banner" role="alert">{mutation.error.message}</p>
+        )}
         <Button
           style={{ width: "100%" }}
-          disabled={status.checkedInToday || mutation.isPending}
+          disabled={!kycVerified || status.checkedInToday || mutation.isPending}
           onClick={() => mutation.mutate()}
         >
-          {status.checkedInToday
-            ? "Already checked in today"
-            : mutation.isPending
-              ? "Claiming…"
-              : "Check in and claim"}
+          {!kycVerified
+            ? "Complete identity verification first"
+            : status.checkedInToday
+              ? "Already checked in today"
+              : mutation.isPending
+                ? "Claiming…"
+                : "Check in and claim"}
         </Button>
-        {mutation.error && (
-          <p className="error-banner">{mutation.error.message}</p>
-        )}
       </section>
     </div>
   );

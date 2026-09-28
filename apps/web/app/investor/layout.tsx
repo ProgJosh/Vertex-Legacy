@@ -24,7 +24,7 @@ export default async function InvestorLayout({ children }: { children: React.Rea
       environmentLabel={manualPaymentsEnabled ? "GCash / Maya deposits · finance verified" : undefined}
       logoutHref={
         process.env.AUTH_PROVIDER === "auth0" || process.env.NODE_ENV === "production"
-          ? "/auth/logout?returnTo=/"
+          ? "/auth/logout"
           : undefined
       }
       user={{
